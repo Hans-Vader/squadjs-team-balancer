@@ -62,7 +62,17 @@ export default class TBDatabase {
   static STALE_CUTOFF_MS = 2.5 * 60 * 60 * 1000;
 
   constructor(server, options, connectors) {
-    this.sequelize = connectors && connectors[options?.database ?? 'sqlite'];
+    // SquadJS injects resolved connector instances directly into options when
+    // the option has "connector: 'sequelize'" in optionsSpecification.
+    // Check if options.database is already a Sequelize instance.
+    const dbOption = options?.database;
+    if (dbOption && typeof dbOption === 'object' && typeof dbOption.define === 'function') {
+      // Already resolved by SquadJS — use directly
+      this.sequelize = dbOption;
+    } else {
+      // Fallback: treat dbOption as a string key into connectors (legacy/manual injection)
+      this.sequelize = connectors && connectors[dbOption ?? 'sqlite'];
+    }
     this.TeamBalancerStateModel = null;
     this._mutex = Promise.resolve();
   }
