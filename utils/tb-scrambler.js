@@ -65,6 +65,7 @@ export const Scrambler = {
     players,
     winStreakTeam,
     scramblePercentage = 0.5,
+    maxTeamSizeDifference = 1,
     eloMap = null,
     minPlayersToMove = 0,
     maxPlayersToMove = 0,
@@ -339,10 +340,14 @@ export const Scrambler = {
       const hypotheticalNewT2 = initialT2Count - playersMovedFromT2 + playersMovedFromT1;
 
       const diff = Math.abs(hypotheticalNewT1 - hypotheticalNewT2);
-      // 0-1 diff = 0 penalty
-      // 2 diff   = 40 penalty (Small enough that ELO/Vet improvements easily override it)
-      // 3+ diff  = Exponential (3=400, 4=900, etc.)
-      const balanceScore = diff <= 1 ? 0 : Math.pow(diff + 1, 2) * 100;
+      // Size-parity penalty (ELO mode only — heuristic mode uses oldBalanceScore below).
+      // A diff up to maxTeamSizeDifference (default 1) is free; beyond it the penalty grows as
+      // (diff + 1)^2 * 100. At the default this is 0/0/900/1600/2500 for diff 0/1/2/3/4.
+      // At default it dominates the ELO (<=480) + Veteran (<=300 = 780 total) terms, so pure
+      // rating/veteran gains can't override an uneven-team penalty. It does NOT always beat the
+      // locked-squad (500/broken squad) or clan-split (75/pair) penalties in the same score.
+      // Raise maxTeamSizeDifference to widen the free band and let rating balance win over parity.
+      const balanceScore = diff <= maxTeamSizeDifference ? 0 : Math.pow(diff + 1, 2) * 100;
 
       const penaltyT1Overcap = Math.max(0, hypotheticalNewT1 - maxTeamSize) * 10000; // Increased penalty
       const penaltyT2Overcap = Math.max(0, hypotheticalNewT2 - maxTeamSize) * 10000; // Increased penalty
@@ -431,7 +436,10 @@ export const Scrambler = {
 
       } else {
         // --- HEURISTIC BALANCE SCORING (NO ELO) ---
-        const oldBalanceScore = diff <= 2 ? diff * 80 : (diff * diff) * 60;
+        // Same free band as ELO mode: diff up to maxTeamSizeDifference costs nothing.
+        // At the default (1) this is behavior-neutral — diff=1 only occurs with odd player
+        // counts, where it's already the best reachable split, so zeroing it changes no ranking.
+        const oldBalanceScore = diff <= maxTeamSizeDifference ? 0 : (diff <= 2 ? diff * 80 : (diff * diff) * 60);
         combinedScore += oldBalanceScore;
 
         const churnScore = Math.abs(actualPlayersMoved - targetPlayersToMoveOverall);

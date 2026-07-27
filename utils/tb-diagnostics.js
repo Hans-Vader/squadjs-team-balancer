@@ -115,6 +115,7 @@ export class TBDiagnostics {
         players,
         winStreakTeam: this.tb.winStreakTeam,
         scramblePercentage: this.tb.options.scramblePercentage,
+        maxTeamSizeDifference: this.tb.options.maxTeamSizeDifference,
       });
 
       if (swapPlan && Array.isArray(swapPlan)) {

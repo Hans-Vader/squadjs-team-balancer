@@ -278,6 +278,11 @@ export default class TeamBalancer extends BasePlugin {
         default: 0.5,
         type: 'number'
       },
+      maxTeamSizeDifference: {
+        default: 1,
+        type: 'number',
+        description: 'How many players the two teams may differ by "for free" during a scramble. Within this tolerance, skill/veteran balancing optimizes freely; beyond it, equal team size is enforced hard (penalty grows quadratically). 1 = current behavior. Raise it to let rating balance win over exact team-size parity.'
+      },
       enableClanTagGrouping: {
         default: false,
         type: 'boolean',
@@ -425,6 +430,10 @@ export default class TeamBalancer extends BasePlugin {
     if (this.options.scramblePercentage < 0.0 || this.options.scramblePercentage > 1.0) {
       Logger.verbose('TeamBalancer', 1, `scramblePercentage (${this.options.scramblePercentage}) is outside the valid range (0.0 to 1.0). Enforcing 0.5.`);
       this.options.scramblePercentage = 0.5;
+    }
+    if (!Number.isFinite(this.options.maxTeamSizeDifference) || this.options.maxTeamSizeDifference < 0) {
+      Logger.verbose('TeamBalancer', 1, `maxTeamSizeDifference (${this.options.maxTeamSizeDifference}) is invalid (must be >= 0). Enforcing default 1.`);
+      this.options.maxTeamSizeDifference = 1;
     }
     if (this.options.singleRoundScrambleThreshold <= this.options.minTicketsToCountAsDominantWin) {
       const newThreshold = this.options.minTicketsToCountAsDominantWin + 50;
@@ -2033,6 +2042,7 @@ export default class TeamBalancer extends BasePlugin {
         players: transformedPlayers,
         winStreakTeam: this.winStreakTeam,
         scramblePercentage: this.options.scramblePercentage,
+        maxTeamSizeDifference: this.options.maxTeamSizeDifference,
         debug: this.options.debugLogs,
         eloMap,
         minPlayersToMove,
