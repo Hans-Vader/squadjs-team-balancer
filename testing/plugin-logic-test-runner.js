@@ -27,6 +27,7 @@ const mockServer = {
   },
   players: [], // empty for logic tests
   squads: [], // empty for logic tests
+  admins: {}, // SquadJS admin list: { [steamID|eosID]: { permission: true } }
   currentLayer: null,
   // Mock listener methods to prevent errors
   removeListener: () => {},

@@ -1,0 +1,13 @@
+{
+  "name": "squadjs-team-balancer",
+  "private": true,
+  "type": "module",
+  "description": "Dev harness for the SquadJS TeamBalancer plugin. In production the plugin runs inside SquadJS, which provides its own module context and dependencies.",
+  "scripts": {
+    "test:logic": "node testing/run-logic-tests.mjs",
+    "test:scrambler": "node testing/scrambler-test-runner.js"
+  },
+  "devDependencies": {
+    "sequelize": "^6.37.0"
+  }
+}

@@ -43,9 +43,14 @@ Not a runnable script.
 
 Tests win streak logic, dominant win detection, and scramble triggering using a mock SquadJS environment. Does not require a live server, but the mock server harness may drift from the real SquadJS API over time.
 
+Run it through the wrapper — it registers `dev-loader.mjs`, which redirects the plugin's SquadJS-core imports (`./base-plugin.js`, `../../core/logger.js`) to `testing/stubs/` when the real files are absent. Requires `npm install` once.
+
 ```bash
-node plugin-logic-test-runner.js
+npm install
+node testing/run-logic-tests.mjs
 ```
+
+Inside a real SquadJS deployment the runner also works directly (`node plugin-logic-test-runner.js` from `squad-server/testing/`) — the stub fallback only fires when the genuine modules cannot be resolved.
 
 ### `elo-integration-test.js`
 
