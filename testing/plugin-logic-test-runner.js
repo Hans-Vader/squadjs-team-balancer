@@ -392,6 +392,54 @@ async function runPluginLogicTests() {
   tb.options.requireScrambleConfirmation = true;
   delete mockServer.matchStartTime;
 
+  // --- Phase 3.6: skipAutoScrambleWhenAdminOnline (admin-online gate) ---
+  console.log('\n[Phase 3.6: Admin-Online Gate]');
+
+  // Fixtures. SquadJS keys server.admins by whatever ID the admin list holds — a 17-digit
+  // steamID or a 32-hex eosID (squad-server/utils/admin-lists.js:72) — so both are covered.
+  const adminBySteamID = { eosID: 'eos_admin_steam', steamID: '76561198000000001', name: 'AdminSteam', teamID: 1, squadID: null, roles: ['Rifleman'] };
+  const adminByEosID = { eosID: 'a1b2c3d4e5f60718293a4b5c6d7e8f90', steamID: '76561198000000002', name: 'AdminEos', teamID: 1, squadID: null, roles: ['Rifleman'] };
+  const plainPlayer = { eosID: 'eos_plain', steamID: '76561198000000003', name: 'Plain', teamID: 2, squadID: null, roles: ['Rifleman'] };
+  const savedPlayers = mockServer.players;
+
+  // _isAdminOnline(): steamID-keyed admin list.
+  mockServer.players = [adminBySteamID, plainPlayer];
+  mockServer.admins = { '76561198000000001': { canseeadminchat: true } };
+  assert(tb._isAdminOnline() === true, 'gate: _isAdminOnline() matches an admin via steamID key.');
+
+  // eosID-keyed admin list — a steamID-only check would miss this entirely.
+  mockServer.players = [adminByEosID, plainPlayer];
+  mockServer.admins = { a1b2c3d4e5f60718293a4b5c6d7e8f90: { canseeadminchat: true } };
+  assert(tb._isAdminOnline() === true, 'gate: _isAdminOnline() matches an admin via eosID key.');
+
+  // Listed admin is not connected.
+  mockServer.players = [plainPlayer];
+  mockServer.admins = { '76561198000000001': { canseeadminchat: true } };
+  assert(tb._isAdminOnline() === false, 'gate: _isAdminOnline() is false when no listed admin is connected.');
+
+  // Unconfigured adminLists yields {} — must read as "no admin online", never as "everyone".
+  mockServer.players = [adminBySteamID, plainPlayer];
+  mockServer.admins = {};
+  assert(tb._isAdminOnline() === false, 'gate: an empty admin list means no admin online (fail-open).');
+
+  // A missing server.admins must not throw.
+  delete mockServer.admins;
+  assert(tb._isAdminOnline() === false, 'gate: a missing server.admins is handled without throwing.');
+  mockServer.admins = {};
+
+  // An EGS-only account has no steamID — it must not match a literal "undefined" key.
+  mockServer.players = [{ eosID: 'eos_no_steam', name: 'NoSteam', teamID: 1, squadID: null, roles: ['Rifleman'] }];
+  mockServer.admins = { undefined: { canseeadminchat: true } };
+  assert(tb._isAdminOnline() === false, 'gate: a player without a steamID does not match an "undefined" admin key.');
+
+  // Prototype keys must not count as admins (regression guard for hasOwnProperty vs `in`).
+  mockServer.players = [{ eosID: 'eos_proto', steamID: 'constructor', name: 'Proto', teamID: 1, squadID: null, roles: ['Rifleman'] }];
+  mockServer.admins = {};
+  assert(tb._isAdminOnline() === false, 'gate: prototype keys (e.g. "constructor") do not count as admins.');
+
+  mockServer.players = savedPlayers;
+  mockServer.admins = {};
+
   // --- Final Report ---
   console.log(`\n🏁 All logic tests completed. Result: ${passCount}/${testCount} passed.`);
   if (passCount !== testCount) {

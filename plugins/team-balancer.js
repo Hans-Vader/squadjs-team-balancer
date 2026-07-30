@@ -241,6 +241,11 @@ export default class TeamBalancer extends BasePlugin {
         type: 'boolean',
         description: 'Automatically scramble teams when a Seed match ends.'
       },
+      skipAutoScrambleWhenAdminOnline: {
+        default: false,
+        type: 'boolean',
+        description: 'Suppress the automatic streak/margin scramble triggers while at least one player from the SquadJS admin list is connected — the idea being that a present admin decides for themselves via !scramble. All trigger conditions and streak counters stay unchanged; only the firing is skipped. Seed auto-scramble and manual scrambles are unaffected. Requires the server "adminLists" config to be populated, otherwise the gate can never engage.'
+      },
       maxWinStreak: {
         default: 2,
         type: 'number'
@@ -534,6 +539,22 @@ export default class TeamBalancer extends BasePlugin {
     const layerName = this.layerNameCached?.toLowerCase() || '';
     return gameMode.includes('seed') || layerName.includes('seed');
   }
+
+  // True if any connected player appears in the SquadJS admin list. Mirrors the check used by the
+  // Switch plugin (server.admins keyed by whatever ID the admin list holds), extended to also match
+  // eosID-keyed lists — SquadJS accepts both (admin-lists.js matches /\d{17}|[a-f0-9]{32}/), so a
+  // steamID-only check misses an EOS-based Admins.cfg entirely. hasOwnProperty (not `in`) so no
+  // prototype key can read as an admin. No permission filter by design: every admin-list entry
+  // counts, including reserve/whitelist groups.
+  // ponytail: reads the 30s-polled server.players — an admin who left <30s ago still blocks. The
+  // error self-corrects at the next round end; call updatePlayerList() here if that ever matters.
+  _isAdminOnline() {
+    const admins = this.server.admins;
+    if (!admins) return false;
+    const isAdminID = (id) => id != null && Object.prototype.hasOwnProperty.call(admins, id);
+    return (this.server.players || []).some((p) => isAdminID(p.steamID) || isAdminID(p.eosID));
+  }
+
   async mount() {
     if (this._isMounted) {
       Logger.verbose('TeamBalancer', 1, 'Plugin already mounted, skipping duplicate mount attempt.');
@@ -542,7 +563,14 @@ export default class TeamBalancer extends BasePlugin {
     this.ready = false;
     Logger.verbose('TeamBalancer', 4, 'Mounting plugin and adding listeners.');
     this.validateOptions();
-    
+
+    // Without a populated adminLists, server.admins stays {} and the gate can never engage — turn
+    // that silent no-op into a visible misconfiguration. server.admins is already loaded here:
+    // SquadJS awaits watch() (which fetches the admin lists) before mounting plugins.
+    if (this.options.skipAutoScrambleWhenAdminOnline && Object.keys(this.server.admins || {}).length === 0) {
+      Logger.verbose('TeamBalancer', 1, '⚠️ skipAutoScrambleWhenAdminOnline is enabled but SquadJS loaded 0 admins — check the server "adminLists" config. The gate can never engage and auto-scramble behaves as if the option were off.');
+    }
+
     if (this.options.devMode) {
       Logger.verbose('TeamBalancer', 1, '⚠️ CRITICAL SECURITY WARNING: devMode is enabled in configuration! This allows ANY player to execute admin commands. This should never be enabled in a production environment.');
     }
