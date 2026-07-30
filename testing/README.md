@@ -26,9 +26,14 @@ Stress-tests the Scrambler algorithm using mock data. Standalone — no server r
   - Case sensitivity: case-fold alone (`caseSensitive: false`, edit=0), case-fold + similarity (`caseSensitive: false`, edit=1), case-sensitive default (`caseSensitive: true`, edit=0)
 - Bulk regression: 2,500 randomized runs (general) + 500 randomized runs (clan grouping with `caseSensitive` and `pullEntireSquads` randomized per run)
 
+Run it through the wrapper for the same reason as the logic runner (see below):
+
 ```bash
-node scrambler-test-runner.js
+npm install
+node testing/run-scrambler-tests.mjs
 ```
+
+Note: the bulk cohesion check is randomized and currently fails its 95% threshold (~76% observed). Pre-existing, unrelated to the plugin's round-end logic.
 
 ### `mock-data-generator.js`
 

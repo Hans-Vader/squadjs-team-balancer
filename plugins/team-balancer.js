@@ -50,6 +50,13 @@
  *   (case-insensitive substring). Default: ["Seed", "Jensen"].
  * - enableSeedAutoScramble: scrambles automatically when a Seed round
  *   ends. Independent of streak logic.
+ * - skipAutoScrambleWhenAdminOnline: suppresses the streak/margin auto-scramble
+ *   triggers while any player from the SquadJS admin list is connected. Streak
+ *   counters keep advancing, so the scramble fires at the next round end once no
+ *   admin is online. Seed auto-scramble and manual scrambles are NOT gated.
+ *   No permission filter — reserve/whitelist entries count as admins too.
+ *   Requires the server "adminLists" config to be populated; with an empty admin
+ *   list the gate can never engage (a warning is logged at mount).
  * - useEloForBalance: pulls mu ratings from a running EloTracker instance
  *   at scramble time. Gracefully falls back to pure numerical balance if
  *   EloTracker is absent or the cache is empty.
@@ -86,6 +93,7 @@
  *   enableWinStreakTracking             - Enable automatic win streak tracking.
  *   ignoredGameModes                   - Modes/maps excluded from tracking (default: ["Seed", "Jensen"]).
  *   enableSeedAutoScramble             - Auto-scramble at end of Seed.
+ *   skipAutoScrambleWhenAdminOnline    - Hold the streak/margin auto-scramble while an admin is online (default: false).
  *
  * Win Streak:
  *   maxWinStreak                       - Dominant wins to trigger scramble (default: 2).
@@ -154,6 +162,7 @@
  *   "enableWinStreakTracking": true,
  *   "ignoredGameModes": ["Seed", "Jensen"],
  *   "enableSeedAutoScramble": true,
+ *   "skipAutoScrambleWhenAdminOnline": false,
  *   "maxWinStreak": 2,
  *   "maxConsecutiveWinsWithoutThreshold": 0,
  *   "enableSingleRoundScramble": false,
@@ -209,7 +218,7 @@ import fs from 'fs';
 import path from 'path';
 
 export default class TeamBalancer extends BasePlugin {
-  static version = '3.2.1';
+  static version = '3.3.0';
 
   static get description() {
     return 'Tracks dominant wins by team ID and scrambles teams if one team wins too many rounds.';
