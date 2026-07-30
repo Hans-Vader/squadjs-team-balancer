@@ -569,6 +569,21 @@ async function runPluginLogicTests() {
   assert(tb._scramblePending === true, 'gate: an empty admin list leaves auto-scramble working (fail-open).');
   await tb.cancelPendingScramble(null, null, true);
 
+  // Status output reflects all three gate states.
+  tb.options.skipAutoScrambleWhenAdminOnline = true;
+  adminOnline();
+  let statusReply = await tb.onChatCommand({ message: 'status', chat: 'ChatAdmin', steamID: 'admin1', player: { name: 'Admin', steamID: 'admin1' } });
+  assert(/Admin Gate: ACTIVE/.test(statusReply || ''), 'status: the gate shows ACTIVE while an admin is online.');
+  noAdminOnline();
+  statusReply = await tb.onChatCommand({ message: 'status', chat: 'ChatAdmin', steamID: 'admin1', player: { name: 'Admin', steamID: 'admin1' } });
+  assert(/Admin Gate: ARMED/.test(statusReply || ''), 'status: the gate shows ARMED when no admin is online.');
+  mockServer.admins = {};
+  statusReply = await tb.onChatCommand({ message: 'status', chat: 'ChatAdmin', steamID: 'admin1', player: { name: 'Admin', steamID: 'admin1' } });
+  assert(/Admin Gate: ADMIN LIST EMPTY/.test(statusReply || ''), 'status: an empty admin list is surfaced in the status output.');
+  tb.options.skipAutoScrambleWhenAdminOnline = false;
+  statusReply = await tb.onChatCommand({ message: 'status', chat: 'ChatAdmin', steamID: 'admin1', player: { name: 'Admin', steamID: 'admin1' } });
+  assert(!/Admin Gate/.test(statusReply || ''), 'status: the gate line is omitted when the option is off.');
+
   // Restore harness state for anything appended after this phase.
   tb.options.skipAutoScrambleWhenAdminOnline = false;
   mockServer.players = savedPlayers;
