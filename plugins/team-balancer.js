@@ -555,6 +555,23 @@ export default class TeamBalancer extends BasePlugin {
     return (this.server.players || []).some((p) => isAdminID(p.steamID) || isAdminID(p.eosID));
   }
 
+  // True when an auto-scramble trigger must stand down because an admin is online. Call it as the
+  // LAST condition of a trigger check: short-circuiting then means it only runs when the trigger
+  // would otherwise have fired, so the round report records what was actually suppressed rather
+  // than every round the option happens to be on.
+  _suppressedByAdminOnline(condition, roundReport) {
+    if (!this.options.skipAutoScrambleWhenAdminOnline || !this._isAdminOnline()) return false;
+    roundReport.scrambleCondition = `Suppressed (Admin Online): ${condition}`;
+    Logger.verbose('TeamBalancer', 2, `[TeamBalancer] Auto-scramble skipped — admin online. Would have fired: ${condition}`);
+    const targetReportChannel = this.discordReportChannel || this.discordChannel;
+    if (targetReportChannel) {
+      DiscordHelpers.sendDiscordMessage(targetReportChannel, {
+        content: `⚠️ Auto-Scramble unterdrückt — ein Admin ist online. Auslöser wäre gewesen: **${condition}**. Bei Bedarf \`!scramble\` nutzen.`
+      });
+    }
+    return true;
+  }
+
   async mount() {
     if (this._isMounted) {
       Logger.verbose('TeamBalancer', 1, 'Plugin already mounted, skipping duplicate mount attempt.');
@@ -1451,7 +1468,7 @@ export default class TeamBalancer extends BasePlugin {
 
       if (this._scramblePending || this._scrambleInProgress) return;
 
-      if (this.options.maxConsecutiveWinsWithoutThreshold > 0 && this.consecutiveWinsCount >= this.options.maxConsecutiveWinsWithoutThreshold) {
+      if (this.options.maxConsecutiveWinsWithoutThreshold > 0 && this.consecutiveWinsCount >= this.options.maxConsecutiveWinsWithoutThreshold && !this._suppressedByAdminOnline('Consecutive Wins', roundReport)) {
         roundReport.scrambled = true;
         roundReport.scrambleCondition = 'Consecutive Wins';
         Logger.verbose('TeamBalancer', 2, `[ConsecutiveWins] Triggered! Count: ${this.consecutiveWinsCount} >= Threshold: ${this.options.maxConsecutiveWinsWithoutThreshold}`);
@@ -1475,7 +1492,7 @@ export default class TeamBalancer extends BasePlugin {
 
       const isInvasion = this.gameModeCached?.toLowerCase().includes('invasion') ?? false;
 
-      if (this.options.enableSingleRoundScramble && !isInvasion && margin >= this.options.singleRoundScrambleThreshold) {
+      if (this.options.enableSingleRoundScramble && !isInvasion && margin >= this.options.singleRoundScrambleThreshold && !this._suppressedByAdminOnline('Single Round Margin', roundReport)) {
         roundReport.scrambled = true;
         roundReport.scrambleCondition = 'Single Round Margin';
         Logger.verbose('TeamBalancer', 2, `[SingleRoundScramble] Triggered! Margin: ${margin} >= Threshold: ${this.options.singleRoundScrambleThreshold}`);
@@ -1630,7 +1647,7 @@ export default class TeamBalancer extends BasePlugin {
         });
       }
 
-      const scrambleComing = this.winStreakCount >= this.options.maxWinStreak;
+      const scrambleComing = this.winStreakCount >= this.options.maxWinStreak && !this._suppressedByAdminOnline('Win Streak Threshold', roundReport);
       Logger.verbose('TeamBalancer', 4, `Scramble check: winStreakCount=${this.winStreakCount}, maxWinStreak=${this.options.maxWinStreak}, scrambleComing=${scrambleComing}`);
 
       if (this.options.showWinStreakMessages && !scrambleComing) {
@@ -1667,7 +1684,7 @@ export default class TeamBalancer extends BasePlugin {
 
       if (this._scramblePending || this._scrambleInProgress) return;
 
-      if (this.winStreakCount >= this.options.maxWinStreak) {
+      if (scrambleComing) {
         roundReport.scrambled = true;
         roundReport.scrambleCondition = 'Win Streak Threshold';
         Logger.verbose('TeamBalancer', 4, `Scramble condition met. Preparing to broadcast announcement.`);

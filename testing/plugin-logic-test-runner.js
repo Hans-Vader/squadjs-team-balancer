@@ -1,9 +1,14 @@
 import TeamBalancer from '../plugins/team-balancer.js';
 import Logger from '../../core/logger.js'; // The plugin uses this, so we need a mock.
 
-// Suppress logger output for cleaner test results
+// Suppress logger output for cleaner test results, but keep level-1 lines for assertions
+// (the round report is logged at level 1 and is how we verify scrambleCondition).
+const capturedLogs = [];
 Logger.verbose = (module, level, message) => {
-  if (level === 1) console.error(`[${module}] ERROR: ${message}`);
+  if (level === 1) {
+    capturedLogs.push(String(message));
+    console.error(`[${module}] ERROR: ${message}`);
+  }
 };
 
 console.log('🧪 Initializing Plugin Logic Test Harness...');
@@ -146,6 +151,7 @@ async function runPluginLogicTests() {
     scrambleAnnouncement: 'Scramble in {delay}s after {count} dominant wins',
     singleRoundScramble: 'Single round scramble triggered.',
     matchEndScrambleAnnouncement: 'Match-end scramble in {delay}s',
+    seedScrambleAnnouncement: 'Seed scramble in {delay}s',
     system: { trackingEnabled: 'Tracking enabled', trackingDisabled: 'Tracking disabled' },
     dominant: { stomped: 'Stomp', steamrolled: 'Steamrolled', invasionAttackStomp: 'Atk Stomp', invasionDefendStomp: 'Def Stomp' },
     nonDominant: { streakBroken: 'Streak Broken', invasionAttackWin: 'Atk Win', invasionDefendWin: 'Def Win', narrowVictory: 'Narrow', marginalVictory: 'Marginal', tacticalAdvantage: 'Tactical', operationalSuperiority: 'Operational' }
@@ -437,6 +443,134 @@ async function runPluginLogicTests() {
   mockServer.admins = {};
   assert(tb._isAdminOnline() === false, 'gate: prototype keys (e.g. "constructor") do not count as admins.');
 
+  mockServer.players = savedPlayers;
+  mockServer.admins = {};
+
+  // --- Gate behaviour ---
+  const adminOnline = () => {
+    mockServer.players = [adminBySteamID, plainPlayer];
+    mockServer.admins = { '76561198000000001': { canseeadminchat: true } };
+  };
+  const noAdminOnline = () => {
+    mockServer.players = [plainPlayer];
+    mockServer.admins = { '76561198000000001': { canseeadminchat: true } };
+  };
+
+  tb.manuallyDisabled = false;
+  tb.options.enableWinStreakTracking = true;
+  tb.options.maxWinStreak = 1;
+  tb.gameModeCached = 'RAAS';
+
+  // Regression: with the option off, an online admin changes nothing.
+  tb.options.skipAutoScrambleWhenAdminOnline = false;
+  adminOnline();
+  await tb.resetStreak();
+  tb._scramblePending = false;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 400 }, loser: { tickets: 0 } });
+  assert(tb._scramblePending === true, 'gate: with the option off, an online admin does not block the scramble.');
+  await tb.cancelPendingScramble(null, null, true);
+
+  // Option on, no admin online: unchanged behaviour.
+  tb.options.skipAutoScrambleWhenAdminOnline = true;
+  noAdminOnline();
+  await tb.resetStreak();
+  tb._scramblePending = false;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 400 }, loser: { tickets: 0 } });
+  assert(tb._scramblePending === true, 'gate: with the option on and no admin online, the scramble still fires.');
+  await tb.cancelPendingScramble(null, null, true);
+
+  // Option on, admin online: suppressed, streak preserved, normal win message instead.
+  // Margin 400 is dominant (threshold 300) but below the stomp cutoff (450), so the
+  // expected broadcast template is 'Steamrolled'.
+  adminOnline();
+  await tb.resetStreak();
+  tb._scramblePending = false;
+  capturedBroadcasts.length = 0;
+  capturedLogs.length = 0;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 400 }, loser: { tickets: 0 } });
+  assert(tb._scramblePending === false, 'gate: an online admin suppresses the win-streak scramble.');
+  assert(tb.winStreakCount === 1, 'gate: the win streak keeps counting while suppressed.');
+  assert(!capturedBroadcasts.find((m) => m.includes('Scramble in')), 'gate: no scramble announcement is broadcast when suppressed.');
+  assert(!!capturedBroadcasts.find((m) => m.includes('Steamrolled')), 'gate: the normal dominant-win message is broadcast instead.');
+  assert(!!capturedLogs.find((m) => m.includes('Condition: Suppressed (Admin Online): Win Streak Threshold')), 'gate: the round report records the suppressed trigger.');
+
+  // Once the admin leaves, the preserved streak fires at the next round end.
+  noAdminOnline();
+  tb._scramblePending = false;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 400 }, loser: { tickets: 0 } });
+  assert(tb._scramblePending === true, 'gate: once the admin leaves, the preserved streak triggers the scramble.');
+  await tb.cancelPendingScramble(null, null, true);
+
+  // Consecutive-wins trigger is gated too. maxWinStreak is parked high so only this path can fire.
+  tb.options.maxWinStreak = 99;
+  tb.options.maxConsecutiveWinsWithoutThreshold = 2;
+  adminOnline();
+  await tb.resetStreak();
+  tb._scramblePending = false;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 50 }, loser: { tickets: 0 } });
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 50 }, loser: { tickets: 0 } });
+  assert(tb.consecutiveWinsCount === 2, 'gate: consecutive wins keep counting while suppressed.');
+  assert(tb._scramblePending === false, 'gate: an online admin suppresses the consecutive-wins scramble.');
+  noAdminOnline();
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 50 }, loser: { tickets: 0 } });
+  assert(tb._scramblePending === true, 'gate: the consecutive-wins scramble fires once no admin is online.');
+  await tb.cancelPendingScramble(null, null, true);
+  tb.options.maxConsecutiveWinsWithoutThreshold = 0;
+
+  // Single-round-margin trigger is gated too, and falls through to the dominance path
+  // (documented behaviour change: the suppressed round now counts toward the win streak).
+  tb.options.enableSingleRoundScramble = true;
+  tb.options.singleRoundScrambleThreshold = 500;
+  adminOnline();
+  await tb.resetStreak();
+  tb._scramblePending = false;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 600 }, loser: { tickets: 99 } }); // margin 501
+  assert(tb._scramblePending === false, 'gate: an online admin suppresses the single-round-margin scramble.');
+  assert(tb.winStreakCount === 1, 'gate: a suppressed single-round trigger falls through and the streak counts the dominant win.');
+  tb.options.enableSingleRoundScramble = false;
+  tb.options.maxWinStreak = 1;
+
+  // The seed auto-scramble is exempt from the gate.
+  tb.options.enableSeedAutoScramble = true;
+  tb.gameModeCached = 'Seed';
+  tb.layerNameCached = 'Logar_Seed_v1';
+  adminOnline();
+  await tb.resetStreak();
+  tb._scramblePending = false;
+  capturedBroadcasts.length = 0;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 400 }, loser: { tickets: 0 } });
+  // Pre-existing seed-path behaviour: initiateScramble() is fired without await and the following
+  // resetStreak() clears _scramblePending (team-balancer.js:1851) while the countdown stays armed.
+  // So the armed countdown — not the pending flag — is the observable for "seed scramble started".
+  assert(!!tb._scrambleCountdownTimeout, 'gate: the seed auto-scramble is exempt and still fires with an admin online.');
+  assert(!!capturedBroadcasts.find((m) => m.includes('Seed scramble in')), 'gate: the seed announcement is still broadcast with an admin online.');
+  // cancelPendingScramble() bails when _scramblePending is false (team-balancer.js:2208), so it
+  // cannot clear this countdown — drop it directly or it fires during a later test.
+  clearTimeout(tb._scrambleCountdownTimeout);
+  tb._scrambleCountdownTimeout = null;
+  tb.gameModeCached = 'RAAS';
+  tb.layerNameCached = null;
+
+  // Manual scrambles are never gated.
+  adminOnline();
+  tb.options.requireScrambleConfirmation = false;
+  tb._scramblePending = false;
+  await tb.onScrambleCommand({ message: '', chat: 'ChatAdmin', steamID: 'admin1', player: { name: 'Admin', steamID: 'admin1' } });
+  assert(tb._scramblePending === true, 'gate: a manual !scramble is not gated by an online admin.');
+  await tb.cancelPendingScramble(null, null, true);
+  tb.options.requireScrambleConfirmation = true;
+
+  // An unconfigured admin list must not silently disable auto-scramble.
+  mockServer.players = [adminBySteamID, plainPlayer];
+  mockServer.admins = {};
+  await tb.resetStreak();
+  tb._scramblePending = false;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 400 }, loser: { tickets: 0 } });
+  assert(tb._scramblePending === true, 'gate: an empty admin list leaves auto-scramble working (fail-open).');
+  await tb.cancelPendingScramble(null, null, true);
+
+  // Restore harness state for anything appended after this phase.
+  tb.options.skipAutoScrambleWhenAdminOnline = false;
   mockServer.players = savedPlayers;
   mockServer.admins = {};
 
