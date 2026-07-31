@@ -57,6 +57,10 @@
  *   No permission filter — reserve/whitelist entries count as admins too.
  *   Requires the server "adminLists" config to be populated; with an empty admin
  *   list the gate can never engage (a warning is logged at mount).
+ *   The Discord notice repeats at every round end while the trigger stays met, so
+ *   it is a standing reminder rather than a one-off. It stops on either exit: the
+ *   admin runs !scramble (executeScramble resets both counters via resetStreak),
+ *   or the admin goes offline and the held scramble fires by itself.
  * - useEloForBalance: pulls mu ratings from a running EloTracker instance
  *   at scramble time. Gracefully falls back to pure numerical balance if
  *   EloTracker is absent or the cache is empty.
@@ -253,7 +257,7 @@ export default class TeamBalancer extends BasePlugin {
       skipAutoScrambleWhenAdminOnline: {
         default: false,
         type: 'boolean',
-        description: 'Suppress the automatic streak/margin scramble triggers while at least one player from the SquadJS admin list is connected — the idea being that a present admin decides for themselves via !scramble. All trigger conditions and streak counters stay unchanged; only the firing is skipped. Seed auto-scramble and manual scrambles are unaffected. Requires the server "adminLists" config to be populated, otherwise the gate can never engage.'
+        description: 'Suppress the automatic streak/margin scramble triggers while at least one player from the SquadJS admin list is connected — the idea being that a present admin decides for themselves via !scramble. All trigger conditions and streak counters stay unchanged; only the firing is skipped. Seed auto-scramble and manual scrambles are unaffected. Requires the server "adminLists" config to be populated, otherwise the gate can never engage. Note: because the counters keep advancing, a held trigger stays met, so the Discord notice repeats at every round end until it is resolved — either the admin runs !scramble (which resets both counters once it executes) or the admin goes offline and the held scramble fires. It is a standing reminder, not a one-off.'
       },
       maxWinStreak: {
         default: 2,

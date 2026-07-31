@@ -340,7 +340,7 @@ const CommandHandlers = {
             const eloStatus = this.options?.useEloForBalance ? (eloTrackerPlugin ? 'Active' : 'Unavailable') : 'Disabled';
 
             // Admin-online gate: without this an admin in-game cannot tell why no scramble happened.
-            const adminGateText = !this.options.skipAutoScrambleWhenAdminOnline
+            const adminGateText = !this.options?.skipAutoScrambleWhenAdminOnline
               ? null
               : Object.keys(this.server.admins || {}).length === 0
               ? 'ADMIN LIST EMPTY (check adminLists config)'

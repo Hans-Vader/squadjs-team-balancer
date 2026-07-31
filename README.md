@@ -236,7 +236,7 @@ database                            - Sequelize database connector (SQLite, MySQ
 enableWinStreakTracking              - Enable/disable automatic win streak tracking.
 ignoredGameModes                    - Game modes or map names excluded from win streak tracking (default: ["Seed", "Jensen"]).
 enableSeedAutoScramble              - Auto-scramble teams at the end of a Seed round (default: true).
-skipAutoScrambleWhenAdminOnline     - Hold the streak/margin auto-scramble while any player from the SquadJS admin list is online; they decide via !scramble instead (default: false). Streak counters keep advancing, so a held scramble fires at the next round end once no admin is connected. Seed auto-scramble and manual scrambles are not affected. Counts every admin-list entry including reserve/whitelist groups, and requires the server "adminLists" config to be populated.
+skipAutoScrambleWhenAdminOnline     - Hold the streak/margin auto-scramble while any player from the SquadJS admin list is online; they decide via !scramble instead (default: false). Streak counters keep advancing, so a held scramble fires at the next round end once no admin is connected. Seed auto-scramble and manual scrambles are not affected. Counts every admin-list entry including reserve/whitelist groups, and requires the server "adminLists" config to be populated. Because the counters keep advancing, a held trigger stays met, so the Discord notice repeats at every round end until it is resolved — either the admin runs !scramble (which resets both counters once it executes) or the admin goes offline and the held scramble fires by itself.
 
 Win Streak:
 maxWinStreak                        - Dominant wins in a row to trigger scramble (default: 2).
