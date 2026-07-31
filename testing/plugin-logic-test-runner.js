@@ -517,6 +517,22 @@ async function runPluginLogicTests() {
   await tb.cancelPendingScramble(null, null, true);
   tb.options.maxConsecutiveWinsWithoutThreshold = 0;
 
+  // Two triggers meeting in one round end must report ONCE. A suppressed trigger falls through
+  // instead of returning, so consecutive-wins and win-streak can both suppress on the same round;
+  // only the first may set the report condition (and with it, send the single Discord notice).
+  tb.options.maxWinStreak = 2;
+  tb.options.maxConsecutiveWinsWithoutThreshold = 2;
+  adminOnline();
+  await tb.resetStreak();
+  tb._scramblePending = false;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 400 }, loser: { tickets: 0 } });
+  capturedLogs.length = 0;
+  await tb.onRoundEnded({ winner: { team: 1, tickets: 400 }, loser: { tickets: 0 } });
+  assert(tb.consecutiveWinsCount === 2 && tb.winStreakCount === 2, 'gate: both triggers are met on the same round end.');
+  assert(!!capturedLogs.find((m) => m.includes('Condition: Suppressed (Admin Online): Consecutive Wins')), 'gate: two suppressed triggers in one round report only the first.');
+  tb.options.maxConsecutiveWinsWithoutThreshold = 0;
+  tb.options.maxWinStreak = 1;
+
   // Single-round-margin trigger is gated too, and falls through to the dominance path
   // (documented behaviour change: the suppressed round now counts toward the win streak).
   tb.options.enableSingleRoundScramble = true;
