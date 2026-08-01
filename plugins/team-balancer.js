@@ -567,11 +567,6 @@ export default class TeamBalancer extends BasePlugin {
   // LAST condition of a trigger check: short-circuiting then means it only runs when the trigger
   // would otherwise have fired, so the round report records what was actually suppressed rather
   // than every round the option happens to be on.
-  //
-  // Unlike a trigger that fires (which returns immediately), a suppressed trigger falls through to
-  // the next one — deliberately, so the streak counters keep advancing. That means several triggers
-  // can suppress within one round end, so only the first one reports: one Discord notice and one
-  // round-report condition per round, matching the first-trigger-wins semantics of the fired path.
   _suppressedByAdminOnline(condition, roundReport) {
     if (!this.options.skipAutoScrambleWhenAdminOnline || !this._isAdminOnline()) return false;
     if (roundReport.scrambleCondition?.startsWith('Suppressed')) return true;
