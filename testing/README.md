@@ -33,8 +33,6 @@ npm install
 node testing/run-scrambler-tests.mjs
 ```
 
-Note: the bulk cohesion check is randomized and currently fails its 95% threshold (~76% observed). Pre-existing, unrelated to the plugin's round-end logic.
-
 ### `mock-data-generator.js`
 
 Helper module imported by `scrambler-test-runner.js`. Generates mock player and squad data with configurable team ratios, lock rates, and squad size distributions. Provides:
