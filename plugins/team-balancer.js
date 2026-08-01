@@ -257,7 +257,7 @@ export default class TeamBalancer extends BasePlugin {
       skipAutoScrambleWhenAdminOnline: {
         default: false,
         type: 'boolean',
-        description: 'Suppress the automatic streak/margin scramble triggers while at least one player from the SquadJS admin list is connected — the idea being that a present admin decides for themselves via !scramble. All trigger conditions and streak counters stay unchanged; only the firing is skipped. Seed auto-scramble and manual scrambles are unaffected. Requires the server "adminLists" config to be populated, otherwise the gate can never engage. Note: because the counters keep advancing, a held trigger stays met, so the Discord notice repeats at every round end until it is resolved — either the admin runs !scramble (which resets both counters once it executes) or the admin goes offline and the held scramble fires. It is a standing reminder, not a one-off.'
+        description: 'Suppress the automatic streak/margin scramble triggers while at least one player from the SquadJS admin list is connected'
       },
       maxWinStreak: {
         default: 2,
@@ -553,12 +553,7 @@ export default class TeamBalancer extends BasePlugin {
     return gameMode.includes('seed') || layerName.includes('seed');
   }
 
-  // True if any connected player appears in the SquadJS admin list. Mirrors the check used by the
-  // Switch plugin (server.admins keyed by whatever ID the admin list holds), extended to also match
-  // eosID-keyed lists — SquadJS accepts both (admin-lists.js matches /\d{17}|[a-f0-9]{32}/), so a
-  // steamID-only check misses an EOS-based Admins.cfg entirely. hasOwnProperty (not `in`) so no
-  // prototype key can read as an admin. No permission filter by design: every admin-list entry
-  // counts, including reserve/whitelist groups.
+  // True if any connected player appears in the SquadJS admin list.
   // ponytail: reads the 30s-polled server.players — an admin who left <30s ago still blocks. The
   // error self-corrects at the next round end; call updatePlayerList() here if that ever matters.
   _isAdminOnline() {
@@ -1487,7 +1482,10 @@ export default class TeamBalancer extends BasePlugin {
 
       if (this._scramblePending || this._scrambleInProgress) return;
 
-      if (this.options.maxConsecutiveWinsWithoutThreshold > 0 && this.consecutiveWinsCount >= this.options.maxConsecutiveWinsWithoutThreshold && !this._suppressedByAdminOnline('Consecutive Wins', roundReport)) {
+      if (this.options.maxConsecutiveWinsWithoutThreshold > 0
+          && this.consecutiveWinsCount >= this.options.maxConsecutiveWinsWithoutThreshold
+          && !this._suppressedByAdminOnline('Consecutive Wins', roundReport)
+      ) {
         roundReport.scrambled = true;
         roundReport.scrambleCondition = 'Consecutive Wins';
         Logger.verbose('TeamBalancer', 2, `[ConsecutiveWins] Triggered! Count: ${this.consecutiveWinsCount} >= Threshold: ${this.options.maxConsecutiveWinsWithoutThreshold}`);
