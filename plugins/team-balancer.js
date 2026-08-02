@@ -996,6 +996,12 @@ export default class TeamBalancer extends BasePlugin {
       case 'clear':
         await this.discordCommandClear(message);
         break;
+      // THROWAWAY: posts fake scramble embeds for visual checks. Delete with utils/tb-fake-report.js.
+      case 'faketest': {
+        const { runFakeReport } = await import('../utils/tb-fake-report.js');
+        await runFakeReport(message.channel, args[1]);
+        break;
+      }
       case 'help': {
         const helpEmbed = {
           color: 0x3498db,
