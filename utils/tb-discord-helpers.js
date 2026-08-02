@@ -78,6 +78,14 @@ export const DiscordHelpers = {
     const eloTrackerPlugin = tb.server.plugins?.find(p => p.constructor.name === 'EloTracker');
     const eloStatus = tb.options?.useEloForBalance ? (eloTrackerPlugin ? '✅ Active' : '❌ Unavailable') : '⏹️ Disabled';
 
+    const adminGateText = !tb.options?.skipAutoScrambleWhenAdminOnline
+      ? null
+      : Object.keys(tb.server.admins || {}).length === 0
+      ? '⚠️ Admin list empty'
+      : tb._isAdminOnline()
+      ? '🛑 Admin online (held)'
+      : '✅ Armed (no admin)';
+
     const embed = {
       color: 0x3498db,
       title: '📊 TeamBalancer Status',
@@ -88,6 +96,7 @@ export const DiscordHelpers = {
         { name: 'Dominant Streak', value: winStreakText, inline: true },
         { name: 'Consecutive Streak', value: consecutiveText, inline: true },
         { name: 'Round-End Scramble', value: tb._scrambleOnRoundEnd ? '🕒 Armed (fires at round end)' : 'None', inline: true },
+        ...(adminGateText ? [{ name: 'Admin Gate', value: adminGateText, inline: true }] : []),
         { name: 'Last Scramble', value: lastScrambleText, inline: false },
         { name: 'Player Count', value: `Total: ${players.length} | T1: ${t1Count} | T2: ${t2Count}`, inline: false }
       ],

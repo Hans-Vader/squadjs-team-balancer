@@ -26,8 +26,11 @@ Stress-tests the Scrambler algorithm using mock data. Standalone — no server r
   - Case sensitivity: case-fold alone (`caseSensitive: false`, edit=0), case-fold + similarity (`caseSensitive: false`, edit=1), case-sensitive default (`caseSensitive: true`, edit=0)
 - Bulk regression: 2,500 randomized runs (general) + 500 randomized runs (clan grouping with `caseSensitive` and `pullEntireSquads` randomized per run)
 
+Run it through the wrapper for the same reason as the logic runner (see below):
+
 ```bash
-node scrambler-test-runner.js
+npm install
+node testing/run-scrambler-tests.mjs
 ```
 
 ### `mock-data-generator.js`
@@ -43,9 +46,14 @@ Not a runnable script.
 
 Tests win streak logic, dominant win detection, and scramble triggering using a mock SquadJS environment. Does not require a live server, but the mock server harness may drift from the real SquadJS API over time.
 
+Run it through the wrapper — it registers `dev-loader.mjs`, which redirects the plugin's SquadJS-core imports (`./base-plugin.js`, `../../core/logger.js`) to `testing/stubs/` when the real files are absent. Requires `npm install` once.
+
 ```bash
-node plugin-logic-test-runner.js
+npm install
+node testing/run-logic-tests.mjs
 ```
+
+Inside a real SquadJS deployment the runner also works directly (`node plugin-logic-test-runner.js` from `squad-server/testing/`) — the stub fallback only fires when the genuine modules cannot be resolved.
 
 ### `elo-integration-test.js`
 

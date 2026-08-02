@@ -339,6 +339,15 @@ const CommandHandlers = {
             const eloTrackerPlugin = this.server.plugins?.find(p => p.constructor.name === 'EloTracker');
             const eloStatus = this.options?.useEloForBalance ? (eloTrackerPlugin ? 'Active' : 'Unavailable') : 'Disabled';
 
+            // Admin-online gate: without this an admin in-game cannot tell why no scramble happened.
+            const adminGateText = !this.options?.skipAutoScrambleWhenAdminOnline
+              ? null
+              : Object.keys(this.server.admins || {}).length === 0
+              ? 'ADMIN LIST EMPTY (check adminLists config)'
+              : this._isAdminOnline()
+              ? 'ACTIVE (admin online — auto-scramble held)'
+              : 'ARMED (no admin online)';
+
             // Formatted response for !teambalancer status
             const statusMsg = [
               `--- TeamBalancer Status ---`,
@@ -347,6 +356,7 @@ const CommandHandlers = {
               `Elo Integration: ${eloStatus}`,
               `Win Streak: ${winStreakText}`,
               `Consecutive Wins: ${consecText}`,
+              ...(adminGateText ? [`Admin Gate: ${adminGateText}`] : []),
               `Last Scramble: ${lastScrambleText}`,
               `Players: ${players.length} (T1: ${t1Count} | T2: ${t2Count})`,
               `Layer: ${currentLayer}`,
