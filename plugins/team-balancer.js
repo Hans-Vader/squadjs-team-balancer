@@ -288,7 +288,7 @@ export default class TeamBalancer extends BasePlugin {
       enableClanTagGrouping: {
         default: false,
         type: 'boolean',
-        description: 'Keep players sharing a clan tag (e.g. [ABC]) together when they are on the same team during a scramble. Forms per-team "virtual squads" so Phase 1 swaps clan members atomically and Phase 3 only breaks them as a last resort. Cross-team clan splits are NOT consolidated by design.'
+        description: 'Keep players sharing a clan tag (e.g. [ABC]) together when they are on the same team during a scramble. Forms per-team "virtual squads" that are swapped atomically as one unit and are never broken. Cross-team clan splits are NOT consolidated by design.'
       },
       minClanGroupSize: {
         default: 2,

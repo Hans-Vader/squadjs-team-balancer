@@ -17,7 +17,7 @@ Stress-tests the Scrambler algorithm using mock data. Standalone — no server r
 **Coverage:**
 - Standard scenarios: 50/50, imbalances (45/55, 20/80, etc.), low pop, max capacity, seeding mode
 - Squad-structure edge cases: All-locked, David-vs-Goliath
-- ELO balancing: pro-stack detection scenario
+- ELO balancing: pro-stack detection scenario — **currently fails by design.** The scenario puts 15 pros into a single squad and expects ≥5 of them to be moved at `scramblePercentage: 0.2`. Since the squad-preserving refactor the scrambler can no longer split a squad, and a 15-man squad does not fit the per-side target of ~11 + 3 grace, so 0 pros move. Either the expectation or the scenario's squad size needs adjusting.
 - **Clan tag grouping** (when `enableClanTagGrouping` is on):
   - Same-team clan in multiple squads (default vs `pullEntireSquads: true`)
   - Cross-team clan (each side cohesive, no forced cross-team consolidation)

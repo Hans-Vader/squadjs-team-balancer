@@ -6,7 +6,7 @@
 
 Tracks dominant win streaks and rebalances teams using a squad-preserving scramble algorithm. Designed for Squad servers to avoid steamrolling, reduce churn, and maintain match fairness over time.
 
-Scramble execution swaps entire squads or unassigned players, balancing team sizes while respecting the 50-player cap and preserving squad cohesion. Includes dry-run mode, configurable thresholds, and fallback logic for emergency breakup squads in the worst case if needed.
+Scramble execution swaps entire squads or unassigned players, balancing team sizes while respecting the 50-player cap and preserving squad cohesion. The scramble never splits a group: if numerical balance would require it, the residual imbalance is tolerated instead. Includes dry-run mode and configurable thresholds.
 
 ---
 
@@ -30,7 +30,7 @@ Scramble execution swaps entire squads or unassigned players, balancing team siz
 
 * **Seed Auto-Scramble**: Automatically scrambles teams at the end of a Seed round, ensuring balanced teams as the server fills up.
 
-* **ELO-Weighted Balancing**: Optional integration with EloTracker. When `useEloForBalance` is enabled, the scoring function switches to an ELO-weighted branch: a composite penalty (50% Mean ELO diff + 50% Top-15 ELO diff) + veteran parity penalty + numerical balance. The standard heuristic penalties (churn, anchor, cohesion, infantry overload) are replaced entirely, not supplemented.
+* **ELO-Weighted Balancing**: Optional integration with EloTracker. When `useEloForBalance` is enabled, the scoring function switches to an ELO-weighted branch: a composite penalty (60% Mean ELO diff + 40% Top-15 ELO diff) + veteran parity penalty + numerical balance. The heuristic penalties (churn, anchor, infantry overload) are replaced entirely, not supplemented; the clan cohesion penalty runs in both modes.
 
 * **Discord Integration**: Administer the plugin via Discord, mirror RCON broadcasts, and view detailed swap plans.
 
@@ -76,29 +76,28 @@ Prevents players from changing teams immediately after a scramble. When TeamBala
 
 ## Scramble Algorithm (Optimal Exhaustive Search)
 
-Operates using a four-phase dynamic escalation system to ensure perfect numerical parity while protecting the core identity and cohesion of existing teams.
+Operates as a single-phase exhaustive search over squad-level swaps. The search moves whole units and never takes a subset of one, so numerical parity is reached purely by choosing which units to trade. With Clan Tag Grouping off, a unit is an in-game squad. With it on, clan members are regrouped into virtual squads *before* the search starts — that regrouping does pull players out of their squads, see [Clan Tag Grouping](#clan-tag-grouping-optional).
 
 * **Data Prep**: Normalizes squad snapshots and treats unassigned players as individual "pseudo-squads" for maximum movement flexibility.
 
 * **Target Calc**: Computes ideal player swap targets (default 50% churn) adjusted by current team population deltas.
 
-* **Tiered Optimization (2000 Iterations)**:
-  * **Phase 1 (Pure Swaps)**: Focuses exclusively on whole-squad moves to maximize friend-group cohesion.
-  * **Phase 2 (Surgical Unlocked)**: Dynamically shatters one random unlocked squad if balance remains poor to provide precision adjustments.
-  * **Phase 3 (Surgical Locked)**: A late-stage fallback that allows breaking a single locked squad to resolve extreme parity issues.
-  * **Phase 4 (Nuclear Option)**: A final resort that decomposes all squads to achieve maximum numerical balance. Runs for the last 5 iterations.
-  * **With Clan Tag Grouping enabled**: same-team clan members are folded into "virtual squads" anchored on the squad with the most clan members; Phase 1 swaps them as one unit, and Phases 2/3 only shatter a virtual squad when no non-clan squad is eligible.
+* **Squad-Level Optimization (2000 Iterations)**:
+  * Each iteration shuffles the candidate lists and greedily packs whole squads (largest first, single players last) until the per-side churn target is met, allowing a 3-player overshoot so a squad that slightly exceeds the target still fits.
+  * The movable units are formed squads, unassigned players (as size-1 pseudo-squads), and — with Clan Tag Grouping enabled — clan virtual squads. All three move atomically: the search never takes part of a unit.
+  * Squad lock status does not influence the search. A locked squad is traded as one unit exactly like an unlocked one, and neither is ever split.
+  * **Known limitation**: a squad larger than the per-side churn target plus the 3-player grace cannot be selected at all. On low-pop servers with a low `scramblePercentage`, large squads and large clan virtual squads may sit out a scramble entirely.
 
-* **ELO Integration (Optional)**: When ELO data is available, the scrambler uses a dedicated ELO-weighted scoring branch (composite Mean/Top-15 ELO diff + veteran parity + numerical balance). Standard heuristic penalties like churn, anchor rules, and cohesion weights are disabled in favor of ELO parity.
+* **ELO Integration (Optional)**: When ELO data is available, the scrambler uses a dedicated ELO-weighted scoring branch (composite Mean/Top-15 ELO diff + veteran parity + numerical balance). The heuristic penalties (churn, anchor rules, infantry overload) are disabled in favor of ELO parity; the clan cohesion penalty runs in both modes.
 
 * **Identity Preservation**: In heuristic (non-ELO) mode, a penalty discourages moving more than 2 large infantry squads from a single team per scramble.
 
-* **Cap Enforcement**: A final corrective pass trims overages in priority order: Unassigned → Unlocked Squad Members. Locked players are never moved during cap enforcement.
+* **Cap Enforcement**: A final corrective pass trims team overages using loose unassigned players only. Squad members are never moved during trimming, and neither are squadless players that a clan tag folded into a virtual squad — they carry their group's squad identity from that point on. Once no loose players are left, the remaining overage is tolerated and logged as a warning rather than breaking a group.
 
 ### Performance Benchmarks
 * **Execution Time**: ~70–95ms per search (exhaustive 2000-attempt pass).
 * **Balance Success**: 99.9% rate of achieving a team differential of ≤ 2 players.
-* **Cohesion**: Locked squads are preserved during Phases 1–2. Phase 3 may split one locked squad as a late-stage fallback. Phase 4 decomposes all squads.
+* **Cohesion**: The scramble never splits a unit, locked or not. Every player moved travels with their whole group; only loose unassigned players move alone. Three cases fall outside that guarantee: clans that already start split across teams (not consolidated by design), clans larger than `maxClanGroupSize` (dropped from grouping entirely), and RCON moves that fail during execution.
 
 ### Clan Tag Grouping (Optional)
 
@@ -108,9 +107,11 @@ When `enableClanTagGrouping` is on, the scrambler keeps players who share a clan
 
 * **Tag detection**: Player names are scanned for a leading clan tag via a five-strategy detector (ported from [squadjs-elo-tracker](https://github.com/mikebjoyce/squadjs-elo-tracker)), tried in order: bracket pairs (`[TAG]`, `【TAG】`, `╔TAG╗`), explicit separators (`TAG | Name`, `TAG // Name`), 2+ space gap, short ASCII ALL-CAPS (`KM Lookout`), and a bare-prefix fallback for Unicode/mixed-case prefixes (`KΛZ Korven`). Names with no visible tag/name boundary (e.g. `ABCJohnSmith`) yield no group.
 * **Matching**: Case-sensitive by default. Set `clanTagCaseSensitive: false` to normalize via NFD-decompose, lookalike mapping (`λ`→`a`, `я`→`r`, …), and uppercase, collapsing variants like `[Café]` / `[CAFE]` / `[CΛFE]`. Tags within `clanTagMaxEditDistance` Levenshtein distance are iteratively merged so transitive matches (`[AAA] ↔ [AAB] ↔ [ABB]`) collapse into one group.
-* **Virtual squads**: Per team, clan members are folded into a virtual squad anchored on the squad already holding the most clan members (tiebreak: larger size, lower ID). `clanGroupingPullEntireSquads` toggles whether non-clan teammates travel along (default: only clan members are pulled).
+* **Virtual squads**: Per team, clan members are folded into a virtual squad anchored on the squad already holding the most clan members (tiebreak: larger size, lower ID). `clanGroupingPullEntireSquads` toggles whether non-clan teammates travel along (default: only clan members are pulled). Squadless players count too — a player with the tag and no squad is pulled into the group and treated as a squad member from then on, including by cap enforcement.
+* **This splits the source squads**: with the default `clanGroupingPullEntireSquads: false`, clan members are lifted out of their squads and the remainder stays behind as its own unit, free to move the other way. That is the intended trade — clan cohesion is bought with squad cohesion. Set the option to `true` to move contributing squads wholesale instead.
 * **Overlapping clans**: Two clans sharing a squad each keep their own virtual squad. A squad already used as another clan's anchor stays available as a source — the second clan pulls its members out of it, and `clanGroupingPullEntireSquads` never drags it along wholesale. Only if *every* squad holding a clan's members is already anchored elsewhere do the two clans merge into one unit.
-* **Phase behavior**: Phase 1 swaps virtual squads atomically. Phases 2/3 prefer non-clan victims and only break a virtual squad when no other option exists; a soft scoring penalty further discourages re-splitting once decomposition begins.
+* **Swap behavior**: Virtual squads are swapped atomically as a single unit and are never broken — the report labels every listed group `moved together` and has no branch for anything else. `scrambler-test-runner.js` asserts that invariant against the real algorithm. A soft scoring penalty stays in place as a safety net.
+* **Discord report**: Each virtual squad block names its anchor squad with `⚓` (e.g. `Virtual Squad: [3DP] ⚓ Alpha · 4p · Ø26.1μ · 2★`), and every player row shows its ELO as `26.1μ★`. The per-row squad column names each player's real in-game squad, so a `◆` row reading `UNASSIGNED` is a squadless player the clan tag pulled in. The two swap directions are separated by a horizontal rule, and the embed footer glosses every symbol that actually appears in the report.
 
 **Cross-team clans are intentionally not consolidated** — if a clan starts split across teams, each side is treated independently.
 
@@ -165,6 +166,7 @@ Add to your `config.json`:
    "maxClanGroupSize": 18,
    "clanTagMaxEditDistance": 1,
    "clanTagCaseSensitive": true,
+   "clanTagIgnoreList": [],
    "clanGroupingPullEntireSquads": false,
    "changeTeamRetryInterval": 50,
   "maxScrambleCompletionTime": 15000,

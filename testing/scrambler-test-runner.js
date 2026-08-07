@@ -533,11 +533,69 @@ async function runAllTests() {
   });
 
   await runClanCollisionTest(20);
+  await runVirtualSquadAtomicityTest(200);
 
   await runBulkTests(2500);
   await runClanBulkTest(500);
   await runEloClanBulkTest(500);
   await runDiagnosticClanTest(50);
+}
+
+/**
+ * Invariant guard for the Discord report: every virtual squad in plan.virtualSquads either
+ * moves in full or not at all. The report relies on this — it labels each block
+ * "moved together" and has no rendering branch for a torn-apart group, so a violation would
+ * silently produce a wrong report rather than a visibly broken one.
+ *
+ * Two ways this used to break, both fixed in tb-scrambler.js and both covered here:
+ *   - the roster was read off an allMembers snapshot taken before a later clan could reclaim
+ *     its own members out of the group (ClanSquadCollision reproduces it, 200/600 rosters
+ *     pre-fix at 300 runs per mode)
+ *   - an unassigned clan member kept squadID === null and the cap-enforcement trim picked it
+ *     off individually (LowPopLargeClan and the collision scenario both carry such players)
+ */
+async function runVirtualSquadAtomicityTest(runsPerMode = 200) {
+  console.log(`\n==================================================`);
+  console.log(`🧪 VIRTUAL SQUAD ATOMICITY (${runsPerMode} runs per scenario)`);
+  console.log(`==================================================`);
+
+  const scenarios = [
+    ['Two clans sharing a squad (players only)', generateScenario_ClanSquadCollision, { pullEntireSquads: false }],
+    ['Two clans sharing a squad (entire squads)', generateScenario_ClanSquadCollision, { pullEntireSquads: true }],
+    ['Clan across multiple squads', generateScenario_ClanGrouping, {}],
+    ['Low pop + 15-member clan', generateScenario_LowPopLargeClan, { scramblePercentage: 0.2 }]
+  ];
+
+  for (const [label, gen, opts] of scenarios) {
+    let rosters = 0, shown = 0, torn = 0;
+    let firstBreak = '';
+    for (let i = 0; i < runsPerMode; i++) {
+      const { players, squads } = gen();
+      const clanGroups = extractClanGroups(players, { minSize: 2, maxSize: 18, maxEditDistance: 1, caseSensitive: true });
+      const { squads: tfSquads, players: tfPlayers } = transformForScrambler(players, squads);
+      const plan = await Scrambler.scrambleTeamsPreservingSquads({
+        squads: tfSquads,
+        players: tfPlayers,
+        winStreakTeam: 1,
+        scramblePercentage: opts.scramblePercentage ?? 0.5,
+        clanGroups,
+        pullEntireSquads: opts.pullEntireSquads ?? false
+      });
+      const moved = new Set(plan.map((m) => m.eosID));
+      for (const vs of plan.virtualSquads ?? []) {
+        const roster = [...vs.members, ...vs.pulled];
+        rosters++;
+        const movers = roster.filter((id) => moved.has(id)).length;
+        if (movers > 0) shown++;
+        if (movers > 0 && movers < roster.length) {
+          torn++;
+          if (!firstBreak) firstBreak = ` — e.g. [${vs.tag}] T${vs.teamID}: ${movers}/${roster.length} moved`;
+        }
+      }
+    }
+    track(`${label}: ${rosters} rosters (${shown} rendered), none torn apart`, torn === 0,
+      ` — ${torn} torn${firstBreak}`);
+  }
 }
 
 /**

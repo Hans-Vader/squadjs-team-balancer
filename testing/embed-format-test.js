@@ -46,6 +46,9 @@ const withPlan = (moves, extras = {}) => {
 const isVirtual = (f) => f.name.includes('Clan Grouping');
 const virtualFields = (e) => e.fields.filter(isVirtual);
 const regularFields = (e) => e.fields.filter((f) => f.name.includes('➔') && !isVirtual(f));
+// The direction divider: a rule of ━ with a zero-width space as its value.
+const isDivider = (f) => /^━+$/.test(f.name);
+const dividers = (e) => e.fields.filter(isDivider);
 const linesOf = (f) => f.value.replace(/```text\n?|\n?```/g, '').split('\n');
 // Player rows are indented by two spaces; block headers are not, separators are blank.
 const rowsIn = (fields) => fields.flatMap(linesOf).filter((l) => l.startsWith('  ') && l.trim());
@@ -72,7 +75,10 @@ const CLAN_ELO = new Map([
   ['e4', { mu: 27.35, roundsPlayed: 2 }],
   ['e5', { mu: 26.2, roundsPlayed: 50 }]
 ]);
-const VS_3DP = { teamID: '1', tag: '3DP', members: ['e1', 'e2', 'e6'], pulled: ['e3'] };
+// Alpha holds two of the three clan members, so it is the anchor by the scrambler's own rule.
+const VS_3DP = {
+  teamID: '1', tag: '3DP', anchorId: 'T1-S1', members: ['e1', 'e2', 'e6'], pulled: ['e3']
+};
 const ROSTER_3DP = [...VS_3DP.members, ...VS_3DP.pulled];
 const CLAN_MOVES = [...ROSTER_3DP, 'e4'].map((eosID) => ({ eosID, targetTeamID: '2' }))
   .concat([{ eosID: 'e5', targetTeamID: '1' }]);
@@ -90,15 +96,29 @@ check('fields are ordered: balance, then per team virtual squads before regular 
   assert.strictEqual(names[1],
     '🔗 Team 1 (USA) ➔ Team 2 (RGF) Clan Grouping (Virtual Squads) [4 players]');
   assert.ok(names[2].startsWith('Team 1 (USA) ➔ Team 2 (RGF)'), `3rd field: ${names[2]}`);
-  assert.ok(names[3].startsWith('Team 2 (RGF) ➔ Team 1 (USA)'), `4th field: ${names[3]}`);
-  assert.strictEqual(names.length, 4, `team 2 has no virtual squad: ${names}`);
+  assert.ok(isDivider(withClans.fields[3]), `4th field should be the divider: ${names[3]}`);
+  assert.ok(names[4].startsWith('Team 2 (RGF) ➔ Team 1 (USA)'), `5th field: ${names[4]}`);
+  assert.strictEqual(names.length, 5, `team 2 has no virtual squad: ${names}`);
+});
+
+check('the divider separates the two directions exactly once', () => {
+  const found = dividers(withClans);
+  assert.strictEqual(found.length, 1, `expected one divider, got ${found.length}`);
+  // An empty value is rejected by Discord, and a ➔ in the name would make it read as a block.
+  assert.strictEqual(found[0].value, '​', 'divider needs a zero-width space as its value');
+  assert.ok(!found[0].name.includes('➔'), `divider name must stay free of ➔: ${found[0].name}`);
+  const idx = withClans.fields.indexOf(found[0]);
+  assert.ok(withClans.fields.slice(0, idx).every((f) => !f.name.startsWith('Team 2')),
+    'nothing from team 2 above the divider');
+  assert.ok(withClans.fields.slice(idx + 1).every((f) => !f.name.includes('Team 1 (USA) ➔')),
+    'nothing from team 1 below the divider');
 });
 
 check('the virtual squad is one block holding its whole roster', () => {
   const lines = virtualFields(withClans).flatMap(linesOf);
   const headers = lines.filter((l) => l.startsWith('Virtual Squad:'));
   assert.strictEqual(headers.length, 1, `expected one block, got: ${headers}`);
-  assert.ok(headers[0].startsWith('Virtual Squad: [3DP] 4p · Ø'), `header: ${headers[0]}`);
+  assert.ok(headers[0].startsWith('Virtual Squad: [3DP] ⚓ Alpha · 4p · Ø'), `header: ${headers[0]}`);
   for (const name of ['Sparrow', 'Kovacs', 'Okonkwo', 'Halloway']) {
     assert.strictEqual(rowsIn(virtualFields(withClans)).filter((r) => r.includes(name)).length, 1,
       `${name} not on exactly one row of the virtual block`);
@@ -123,28 +143,75 @@ check('the source-squad column shows the real in-game squad', () => {
   assert.ok(/◇ Alpha\s+Halloway$/.test(rowFor('Halloway')), `Halloway: "${rowFor('Halloway')}"`);
 });
 
-check('a fully moved virtual squad reads "moved together", without a moved/stay column', () => {
+// A listed virtual squad always travels whole — the scrambler swaps it as one atom and nothing
+// afterwards singles a member out. The invariant itself is asserted against the real algorithm
+// in scrambler-test-runner.js; here we only pin the rendering that relies on it.
+check('a virtual squad block reads "moved together" and carries no moved/stay column', () => {
   const lines = virtualFields(withClans).flatMap(linesOf);
   assert.ok(lines[0].endsWith('(moved together)'), `header: ${lines[0]}`);
   assert.ok(!/\b(moved|stay)\s/.test(rowsIn(virtualFields(withClans)).join('\n')),
-    'moved/stay column should only appear when the squad is divided');
+    'there is no moved/stay column any more');
 });
 
 // Same plan, but the virtual squad pulled nobody along: no ◇ anywhere in the report.
 const noPulled = await build(withPlan(CLAN_MOVES, {
-  virtualSquads: [{ teamID: '1', tag: '3DP', members: ['e1', 'e2', 'e6'], pulled: [] }]
+  virtualSquads: [
+    { teamID: '1', tag: '3DP', anchorId: 'T1-S1', members: ['e1', 'e2', 'e6'], pulled: [] }
+  ]
 }));
 // And a plan without ELO data at all: no ★ anywhere.
 const noElo = await build(withPlan(CLAN_MOVES, { virtualSquads: [VS_3DP] }),
   CLAN_PLAYERS, CLAN_SQUADS, null);
 
+// Names and squad names are player-chosen, and Squad players really do call themselves things
+// like BJØRN. Every symbol the legend explains is put into the body as user data here, on a plan
+// that has neither ELO data nor clan grouping, so a legend built by scanning the rendered text
+// would claim all six.
+const SPOOF_PLAYERS = [
+  player('s1', 'BJØRN Håkonsen', '1', '1'),
+  player('s2', 'μSoldier ★彡', '1', '1'),
+  player('s3', '◆Ace◇ ⚓Anchor', '2', '2')
+];
+const SPOOF_SQUADS = [
+  { squadID: '1', teamID: '1', squadName: 'MÖRSER Ø★' },
+  { squadID: '2', teamID: '2', squadName: '⚓ ANCHOR ◆' }
+];
+const spoof = await build(withPlan(
+  [{ eosID: 's1', targetTeamID: '2' }, { eosID: 's2', targetTeamID: '2' },
+    { eosID: 's3', targetTeamID: '1' }]),
+  SPOOF_PLAYERS, SPOOF_SQUADS, null);
+
 check('the legend covers every symbol actually used, and only those', () => {
   assert.strictEqual(withClans.footer?.text,
-    '★ regular (10+ rounds) · ◆ clan member (virtual squad) · ◇ pulled with squad');
+    'μ ELO rating · Ø squad average · ★ regular (10+ rounds) · ' +
+    '◆ clan member (virtual squad) · ◇ pulled with squad · ⚓ anchor squad');
   assert.ok(!noPulled.footer.text.includes('◇'), `stale ◇: ${noPulled.footer.text}`);
   assert.ok(noPulled.footer.text.includes('◆'), 'clan marker legend missing');
-  assert.ok(!noElo.footer.text.includes('★'), `stale ★ without ELO: ${noElo.footer.text}`);
+  for (const symbol of ['★', 'μ', 'Ø']) {
+    assert.ok(!noElo.footer.text.includes(symbol),
+      `stale ${symbol} without ELO: ${noElo.footer.text}`);
+  }
   assert.ok(noElo.footer.text.includes('◆'), 'clan marker legend missing without ELO');
+  assert.ok(noElo.footer.text.includes('⚓'), 'anchor legend missing without ELO');
+});
+
+check('player and squad names cannot spoof a legend entry', () => {
+  const body = spoof.fields.map((f) => f.value).join('\n');
+  // Precondition: the user data really is in the report, otherwise this proves nothing.
+  for (const symbol of ['μ', 'Ø', '★', '◆', '◇', '⚓']) {
+    assert.ok(body.includes(symbol), `fixture no longer puts ${symbol} in the body`);
+  }
+  // No ELO map and no virtual squads, so the report can contain none of them as real markers.
+  assert.strictEqual(spoof.footer, undefined,
+    `legend built from names: ${JSON.stringify(spoof.footer?.text)}`);
+});
+
+check('every ELO row carries the μ unit, matching the block headers', () => {
+  for (const row of [...rowsIn(virtualFields(withClans)), ...rowsIn(regularFields(withClans))]) {
+    assert.ok(/\d\.\dμ[★ ]/.test(row), `row without μ: "${row}"`);
+  }
+  assert.ok(!/\d\.\dμ/.test(rowsIn(regularFields(noElo)).join('\n')),
+    'no μ column when there is no ELO data at all');
 });
 
 check('rows are sorted by mu descending', () => {
@@ -157,25 +224,25 @@ check('listed rows account for exactly the planned moves', () => {
   assert.strictEqual(total, CLAN_MOVES.length, `${total} rows vs ${CLAN_MOVES.length} moves`);
 });
 
-// Only one of the four roster players actually moves.
-const dividedClan = await build(withPlan(
-  [{ eosID: 'e1', targetTeamID: '2' }, { eosID: 'e5', targetTeamID: '1' }],
-  { virtualSquads: [VS_3DP] }
-));
+// An unassigned player folded into the virtual squad by their clan tag: the source-squad column
+// is what makes that visible, so it must survive.
+const UNASSIGNED_PLAYERS = [
+  player('u1', '[3DP] Sparrow', '1', '1'),
+  player('u2', '[3DP] Kovacs', '1', null),   // no squad — pulled in by tag alone
+  player('u3', 'Ridley', '2', '3')
+];
+const unassignedClan = await build(withPlan(
+  [{ eosID: 'u1', targetTeamID: '2' }, { eosID: 'u2', targetTeamID: '2' }],
+  { virtualSquads: [{ teamID: '1', tag: '3DP', anchorId: 'T1-S1', members: ['u1', 'u2'], pulled: [] }] }
+), UNASSIGNED_PLAYERS, CLAN_SQUADS, null);
 
-check('a torn-apart virtual squad reads "divided!" and marks moved/stay, movers first', () => {
-  const lines = virtualFields(dividedClan).flatMap(linesOf);
-  assert.ok(lines[0].endsWith('(divided!)'), `header: ${lines[0]}`);
-  const rows = rowsIn(virtualFields(dividedClan));
-  assert.strictEqual(rows.length, 4, 'the whole roster stays visible when divided');
-  assert.ok(rows[0].startsWith('  moved') && rows[0].includes('Sparrow'), `first row: "${rows[0]}"`);
-  assert.strictEqual(rows.filter((r) => r.startsWith('  moved')).length, 1, 'exactly one mover');
-  assert.strictEqual(rows.filter((r) => r.startsWith('  stay')).length, 3, 'three stay');
-  const moved = rowsIn(virtualFields(dividedClan)).filter((r) => r.startsWith('  moved')).length;
-  assert.strictEqual(moved + rowsIn(regularFields(dividedClan)).length, 2, 'row count vs plan');
-  // The field count tracks who changes team, not how many rows are shown.
-  assert.ok(virtualFields(dividedClan)[0].name.endsWith('[1 players]'),
-    `count must exclude the stayers: ${virtualFields(dividedClan)[0].name}`);
+check('a squadless clan member is recognisable by its UNASSIGNED source squad', () => {
+  const rows = rowsIn(virtualFields(unassignedClan));
+  const kovacs = rows.find((r) => r.includes('Kovacs'));
+  assert.ok(/◆ UNASSIGN/.test(kovacs), `Kovacs row must name UNASSIGNED: "${kovacs}"`);
+  assert.ok(/◆ Alpha/.test(rows.find((r) => r.includes('Sparrow'))), 'Sparrow keeps its real squad');
+  assert.ok(virtualFields(unassignedClan)[0].value.includes('(moved together)'),
+    'the group still travels whole');
 });
 
 // A virtual squad nobody was moved out of: the report is about what changes, so it is omitted.
@@ -187,17 +254,21 @@ const untouchedClan = await build(withPlan(
 check('a virtual squad nobody moved out of is omitted entirely', () => {
   assert.strictEqual(virtualFields(untouchedClan).length, 0, 'untouched group should not be shown');
   assert.ok(!untouchedClan.fields.some((f) => f.name.startsWith('Team 1')), 'team 1 moves nobody');
-  assert.ok(!/[◆◇]/.test(untouchedClan.footer.text), 'no clan markers, so no clan legend');
+  assert.ok(!/[◆◇⚓]/.test(untouchedClan.footer.text), 'no clan markers, so no clan legend');
   assert.strictEqual(rowsIn(regularFields(untouchedClan)).length, 1, 'only Ridley moves');
+  assert.strictEqual(dividers(untouchedClan).length, 0,
+    'one direction only, so nothing to divide');
 });
 
 const noClans = await build(withPlan(CLAN_MOVES));
 
-check('no virtual squads: no clan field, no clan markers, only the ★ legend', () => {
+check('no virtual squads: no clan field, no clan markers, only the ELO legend', () => {
   assert.strictEqual(virtualFields(noClans).length, 0, 'clan field should be absent');
-  assert.ok(!/[◆◇]/.test(JSON.stringify(noClans)), 'markers should be absent');
-  assert.strictEqual(noClans.footer.text, '★ regular (10+ rounds)', `footer: ${noClans.footer?.text}`);
+  assert.ok(!/[◆◇⚓]/.test(JSON.stringify(noClans)), 'markers should be absent');
+  assert.strictEqual(noClans.footer.text,
+    'μ ELO rating · Ø squad average · ★ regular (10+ rounds)', `footer: ${noClans.footer?.text}`);
   assert.strictEqual(rowsIn(regularFields(noClans)).length, CLAN_MOVES.length, 'all movers listed');
+  assert.strictEqual(dividers(noClans).length, 1, 'both directions move, so one divider');
 });
 
 // ─── Oversized blocks: two 18-man clans on one team, plus 40 squadless players ───
@@ -213,8 +284,10 @@ const bigAll = [...big, ...unassigned];
 const bigBlock = await build(
   withPlan(bigAll.map((p) => ({ eosID: p.eosID, targetTeamID: '2' })), {
     virtualSquads: [
-      { teamID: '1', tag: 'LONGCLANA', members: big.slice(0, 18).map((p) => p.eosID), pulled: [] },
-      { teamID: '1', tag: 'LONGCLANB', members: big.slice(18).map((p) => p.eosID), pulled: [] }
+      { teamID: '1', tag: 'LONGCLANA', anchorId: 'T1-S1',
+        members: big.slice(0, 18).map((p) => p.eosID), pulled: [] },
+      { teamID: '1', tag: 'LONGCLANB', anchorId: 'T1-S2',
+        members: big.slice(18).map((p) => p.eosID), pulled: [] }
     ]
   }),
   bigAll,
@@ -233,9 +306,9 @@ check('every field stays within Discord limits, virtual and regular alike', () =
   assert.strictEqual(rowsIn(regularFields(bigBlock)).length, 40, 'lost players while chunking');
 });
 
-// ─── Oversized embed: 12 clan squads across both teams, each of them torn in half ───
-// A divided virtual squad lists its stayers as well, so the row count is no longer bounded by
-// the plan — enough blocks and the embed total passes 6000 even though every field is under 1024.
+// ─── Oversized embed: 12 clan squads across both teams, all of them moving ───
+// Every virtual squad renders its full roster, so enough blocks push the embed total past 6000
+// even though every single field stays under 1024.
 const crowdPlayers = [];
 const crowdSquads = [];
 const crowdVirtual = [];
@@ -246,13 +319,12 @@ for (const teamID of ['1', '2']) {
     crowdSquads.push({ squadID, teamID, squadName: `Squad ${s} Infantry` });
     members.forEach((eosID, i) =>
       crowdPlayers.push(player(eosID, `[CLAN${s}] LongishPlayerName${i}`, teamID, squadID)));
-    crowdVirtual.push({ teamID, tag: `CLAN${s}`, members, pulled: [] });
+    crowdVirtual.push({ teamID, tag: `CLAN${s}`, anchorId: `T${teamID}-S${squadID}`, members, pulled: [] });
   }
 }
 const crowded = await build(
   withPlan(
-    crowdPlayers.filter((_, i) => i % 2 === 0)
-      .map((p) => ({ eosID: p.eosID, targetTeamID: p.teamID === '1' ? '2' : '1' })),
+    crowdPlayers.map((p) => ({ eosID: p.eosID, targetTeamID: p.teamID === '1' ? '2' : '1' })),
     { virtualSquads: crowdVirtual }
   ),
   crowdPlayers,
@@ -285,7 +357,7 @@ check('reports that fit are left alone by the size budget', () => {
 
 // Sample output for eyeballing column alignment.
 if (process.argv.includes('--print')) {
-  for (const embed of [withClans, dividedClan]) {
+  for (const embed of [withClans, unassignedClan]) {
     console.log('\n─── sample embed ───');
     for (const f of embed.fields) console.log(`\n${f.name}\n${f.value}`);
     if (embed.footer) console.log(`\n${embed.footer.text}`);

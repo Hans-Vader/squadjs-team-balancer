@@ -227,10 +227,10 @@ export function generateScenario_ClanSquadCollision() {
 
 /**
  * Scenario: low-pop server with a 15-member clan spread across three squads
- * on Team 1, paired with a low scramble percentage. With Phase 1's fixed
+ * on Team 1, paired with a low scramble percentage. With the selector's fixed
  * 3-player grace and a per-side target of ~6 (60 players × 0.2), a 15-player
- * virtual squad can never fit the target window atomically — Phase 1 skips
- * it. The clan members stay together vacuously (they all started on T1 and
+ * virtual squad can never fit the target window atomically — the selector
+ * skips it. The clan members stay together vacuously (they all started on T1 and
  * nobody touches them); the algorithm balances by moving smaller non-clan
  * squads. Cohesion is preserved without atomically swapping the clan.
  *
@@ -399,7 +399,7 @@ export function generateScenario_AllLocked(count = 100, team1Ratio = 0.8) {
 
 /**
  * Generates "David vs Goliath": Team 1 has one massive unlocked squad, Team 2 has small locked squads.
- * Used to test surgical splitting of the large squad.
+ * Used to test that the large squad is traded as one atomic unit, never split.
  */
 export function generateScenario_DavidGoliath() {
   const players = [];
