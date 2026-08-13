@@ -36,7 +36,7 @@ Ein Spieler ohne Squad, der über sein Clan-Tag in ein Virtual Squad gefaltet wu
 1. **Squad-Identität statt Sonderfall.** Wer per Clan-Tag ins Virtual Squad gefaltet wird und vorher kein Squad hatte, bekommt die Kandidaten-ID des Ankers (`T1-S5`). Damit läuft der Trim ohne eigene Ausnahme an ihm vorbei — er ist ab dann Squad-Mitglied wie jedes andere. Kein Filter, keine Sonderliste.
 2. **Roster aus dem finalen Atom.** `plan.virtualSquads` liest die Zusammensetzung aus den Kandidaten-Listen statt aus dem Snapshot. Gruppen, deren Spieler komplett von anderen Clans zurückgeholt wurden, fallen aus dem Ergebnis.
 3. **`allMembers` entfernt** — nach 2. nur noch geschrieben, nie gelesen.
-4. Kommentar zur Clan-Cohesion-Penalty korrigiert: sie ist strukturell immer null und ein reines Sicherheitsnetz, kein aktiver Steuerungsmechanismus.
+4. Kommentar zur Clan-Cohesion-Penalty korrigiert: sie ist strukturell immer null und ein reines Sicherheitsnetz, kein aktiver Steuerungsmechanismus. *(Nachtrag: seit dem Merge mit `legacy` ist daraus eine harte Constraint geworden — siehe unten.)*
 
 ### `utils/tb-discord-helpers.js`
 
@@ -123,6 +123,38 @@ Erwartete Ausgabe des neuen Tests:
 ```
 
 **Gegenprobe:** Setzt man im Ergebnisaufbau des Scramblers wieder den Snapshot statt der Kandidaten-Liste ein, muss dieser Test in den beiden Collision-Szenarien fehlschlagen. Tut er das nicht, greift Ursache 1 nicht mehr und der zweite Fix wäre überflüssig.
+
+## Nachtrag: Merge mit `legacy` (2026-08-13)
+
+`legacy` hatte parallel zwei eigene Commits auf derselben Basis (`b9f184f`, `85cdcb9`), die dieselben Symptome von einer anderen Seite angehen. Beide Zweige haben dabei je eine Lücke des anderen geschlossen.
+
+**Was aus `legacy` übernommen wurde:**
+
+1. **Virtual Squads werden verschmolzen statt zerlegt.** Zieht ein später verarbeiteter Clan seine Mitglieder aus dem Virtual Squad eines früheren, wird die fremde Einheit jetzt komplett absorbiert — beide Clans werden ein Atom. Das ist die eigentliche Lücke in dieser Arbeit hier: Der Report war korrekt (Ursache 1 oben ist echt behoben), aber das *physische* Squad unter dem fremden Virtual Squad zerriss weiterhin. Gemessen an `test-cross-clan-squad-collision.js` mit `pullEntireSquads: true`: **34 von 60 Läufen mit zerrissenem physischem Squad vor dem Merge, 0 von 60 danach.** Der Atomizitäts-Test hier hat das nicht gesehen, weil er nur Virtual-Squad-Roster prüft, keine physischen Squads.
+2. **Cohesion als harte Constraint.** `return Infinity` statt `min(onT1, onT2) * 75`. Feuert gemessen **0 mal in 3,87 Mio. Auswertungen** — durch das Verschmelzen bleibt nichts mehr zu splitten. Kostet nichts und scheitert im Ernstfall sicher, statt von den ELO-/Veteran-Termen überstimmt zu werden. Bleibt als Regressionswächter für das Falten.
+3. **Post-Plan-Verifikation.** Warnt einmal pro Plan (nicht pro Kandidat), wenn doch ein Clan gesplittet wurde. Bricht den Scramble bewusst nicht ab.
+
+**Was aus `legacy` verworfen wurde:**
+
+| Verworfen | Grund |
+|---|---|
+| `allMembers`-Recompute am Ende der Clan-Schleife | Löst dieselbe Ursache 1 wie Punkt 2 oben, aber über den Cache. Ohne Cache gibt es nichts nachzuführen. |
+| `absorbedEntry`-Patching im Merge-Zweig | Schreibt `allMembers` — das Feld existiert nicht mehr. |
+| `clanMemberSet` als Trim-Filter | Ursache 2 ist über die Squad-Identität bereits gelöst, und zwar an *jeder* `squadID === null`-Prüfung statt nur an dieser einen. |
+| Squad-Integritäts-Constraint für `pullEntireSquads` | **1.522.000 Auswertungen, 0 Ablehnungen.** Scannt pro Kandidat alle Squads und verdoppelte die Scramble-Zeit in dem Modus (22,7 ms → 11,8 ms nach Entfernen). Die Invariante hat direkte Testabdeckung. |
+| Entfernen von `runClanCollisionTest` | `legacy` hat den Test in eine eigene Datei verschoben, die Datei aber **nie aufgerufen** — nur importiert. Beide Tests laufen jetzt. |
+
+**Preis des Verschmelzens.** Über 1.500 seed-identische Läufe, gleiche Eingaben für beide Stände:
+
+| | vor Merge | nach Merge |
+|---|---|---|
+| Balance-Fehlschläge (Diff > 2) | 0,87 % | 2,80 % |
+| Clan-Kohäsions-Fehlschläge | 0 | 0 |
+| Virtual Squads | 2910 | 2380 |
+| Ø Gruppengröße | 14,87 | 18,19 |
+| Gruppen, die sich bewegen | 36,7 % | 26,1 % |
+
+Verschmolzene Clans sind größer, passen dadurch seltener ins Churn-Fenster (Ziel + 3 Grace) und sitzen den Scramble häufiger aus. Das ist dieselbe bekannte Grenze wie bei großen Squads, nur verstärkt. Kohäsion bleibt in beiden Ständen bei 100 % — bezahlt wird ausschließlich für die physischen Squads unter den Clans.
 
 ## Offen, nicht Teil dieser Arbeit
 

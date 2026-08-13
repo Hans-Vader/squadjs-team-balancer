@@ -17,6 +17,7 @@ import {
   generateScenario_LowPopLargeClan,
   generateScenario_ClanSquadCollision
 } from './mock-data-generator.js';
+import { runCrossClanSquadDecompositionTest } from './test-cross-clan-squad-collision.js';
 
 // Failure tracker — turns observational checks into a real gate (process.exit on regression).
 const _failures = [];
@@ -535,6 +536,13 @@ async function runAllTests() {
   await runClanCollisionTest(20);
   await runVirtualSquadAtomicityTest(200);
 
+  // Third topology, in its own file: three clans where the third spans two squads both
+  // already claimed as anchors. Checks that virtual squads are merged whole rather than
+  // decomposed, and that no physical squad is torn in the process.
+  const decomp = await runCrossClanSquadDecompositionTest({ runs: 30 });
+  track(`Cross-clan squad decomposition: ${decomp.runs} runs, no virtual or physical division`,
+        decomp.pass, ` — ${decomp.dividedCount} virtual, ${decomp.squadDividedCount} physical`);
+
   await runBulkTests(2500);
   await runClanBulkTest(500);
   await runEloClanBulkTest(500);
@@ -640,7 +648,6 @@ async function runClanCollisionTest(runsPerMode = 20) {
     requireRate(`Cross-clan collision cohesion (pullEntireSquads=${pullEntireSquads})`, cohesive, runsPerMode, 1.0);
   }
 }
-
 
 async function runDiagnosticClanTest(totalRuns = 50) {
   console.log(`\n==================================================`);

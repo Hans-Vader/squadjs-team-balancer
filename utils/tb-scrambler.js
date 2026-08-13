@@ -40,15 +40,19 @@
  *     sizeDeviationPenalty — Penalty for significant underpopulation.
  *     eloBalancePenalty   — Composite score derived from a 60/40 weighted split between Mean ELO diff and Top-15 ELO diff (ELO mode only).
  *     veteranPenalty      — Imbalanced regular player counts (ELO mode only).
- *     clanCohesionPenalty — Safety-net penalty for clan groups splitting across teams (serves as a guard against edge cases since squads are never decomposed).
+ *     clanCohesionConstraint — Hard constraint: candidates that split any clan are rejected (score = Infinity).
  *     anchorPenalty       — Moving >2 large squads from one team (Heuristic mode only).
- * - clanGroups is optional. When present, builds virtual squads to keep same-team clan members together as a soft
- *   preference. Balance takes priority; clans may split if necessary for diff ≤ 2. Runs identically in both ELO and
- *   heuristic modes.
- * - eloMap is optional. When present, heuristic penalties are replaced by ELO parity scoring. Clan cohesion penalty
- *   persists unchanged when using ELO mode (no interaction side effects).
- * - Cap enforcement runs as a final pass, trimming team overages using unassigned players only.
- *   Squad members are never moved during trimming — overcap is tolerated rather than breaking squads.
+ * - clanGroups is optional. When present, builds virtual squads to keep same-team clan members together.
+ *   Two clans sharing a squad are merged into one atom rather than decomposed, so every same-team
+ *   clan member sits in exactly one virtual squad. The cohesion constraint then never has anything
+ *   left to reject; it stays as the guard that catches a regression in that folding.
+ *   Runs identically in both ELO and heuristic modes.
+ * - eloMap is optional. When present, heuristic penalties are replaced by ELO parity scoring. The clan
+ *   cohesion constraint persists unchanged when using ELO mode (no interaction side effects).
+ * - Cap enforcement runs as a final pass, trimming team overages using loose unassigned players only.
+ *   Squad members are never moved during trimming — and a squadless player folded into a virtual squad
+ *   carries the anchor's squad identity from that point on, so cap enforcement cannot pick them off
+ *   individually either. Overcap is tolerated rather than breaking a squad or a clan group.
  * - Baseline performance: ~70–95ms per exhaustive search, 99.9% balance
  *   success rate (diff ≤ 2 players) under standard conditions.
  *
@@ -152,9 +156,12 @@ export const Scrambler = {
 
     // ─── Clan Tag Grouping (Pre-Phase) ─────────────────────────────
     // Build "virtual squads" per team that bind same-team clan members
-    // together so squad swaps move them as a unit. Only mutates the
-    // candidate arrays (t1Candidates / t2Candidates) — workingSquads is
-    // left intact for virtual squad construction.
+    // together so squad swaps move them as a unit. Three stages per clan:
+    //   1. Identify contributing squads (any candidate holding a clan member).
+    //   2. Build the virtual squad's player list from anchor + "others".
+    //   3. Clean up the candidate array (replace anchor, splice/trim others).
+    // Only mutates the candidate arrays (t1Candidates / t2Candidates) —
+    // workingSquads is left intact for virtual squad construction.
     //
     // Cross-team consolidation is intentionally NOT performed: clan
     // members already split across teams are treated as two independent
@@ -187,11 +194,13 @@ export const Scrambler = {
           const memberSet = new Set(sameTeamMembers);
 
            // Squads (real or unassigned-pseudo) currently in candidates that hold any clan member.
-           // A squad already claimed as a prior clan's anchor stays a valid *source* — this
-           // clan's members are pulled out of it below. Excluding it here would orphan them
-           // inside the foreign virtual squad, which is the one way a clan reliably splits.
-           // Clan groups are disjoint (see extractClanGroups), so extracting our members
-           // never touches the other clan's own members.
+           // A squad already claimed as a prior clan's anchor stays a valid *source*. Excluding it
+           // here would orphan our members inside the foreign virtual squad, which is the one way a
+           // clan reliably splits. How we take them depends on what the source is:
+           //   - a plain physical squad: extract just our members (clan groups are disjoint, so this
+           //     never touches another clan's own members)
+           //   - a prior clan's virtual squad: absorb it whole (see the merge branch below).
+           //     Extracting from it would decompose that clan's atom — trading one split for another.
            const contributing = teamCandidates.filter((s) =>
              s.players.some((p) => memberSet.has(p))
            );
@@ -206,9 +215,9 @@ export const Scrambler = {
 
           // Anchor: most clan members; tiebreak by larger total size; tiebreak by lower id.
           // Claimed squads are barred from being the anchor so two clans keep separate
-          // units. Only when every contributing squad is already claimed do we fall back
-          // and anchor on one — the clans then merge into a single unit, which still
-          // satisfies cohesion for both.
+          // units. The fallback (anchor on an already-claimed squad) triggers when a
+          // later clan's members are entirely within prior clans' virtual squads — the
+          // clans merge into a single atomic unit, which still satisfies cohesion for both.
           const anchorPool = contributing.filter((s) => !claimedAnchorIds.has(s.id));
           const anchor = [...(anchorPool.length ? anchorPool : contributing)].sort((a, b) => {
             const aClan = a.players.filter((p) => memberSet.has(p)).length;
@@ -219,8 +228,9 @@ export const Scrambler = {
           })[0];
           const others = contributing.filter((s) => s.id !== anchor.id);
 
-          // Build the virtual squad's player list. A claimed squad is another clan's unit:
-          // take only our own members from it, never swallow it whole.
+          // Build the virtual squad's player list. This pass takes only our own members out of a
+          // claimed squad; when that squad is another clan's virtual unit the cleanup loop below
+          // then absorbs the rest of it, so the two clans end up as one atom.
           const seen = new Set(anchor.players);
           const newPlayers = [...anchor.players];
           for (const s of others) {
@@ -263,22 +273,40 @@ export const Scrambler = {
            if (anchorIdx !== -1) teamCandidates[anchorIdx] = virtualSquad;
            claimedAnchorIds.add(anchor.id); // prevent later clans from re-using this anchor
 
-          // Update other contributing squads (iterate in reverse for safe splicing).
-          const otherSet = new Set(others);
-          for (let i = teamCandidates.length - 1; i >= 0; i--) {
-            const s = teamCandidates[i];
-            if (s === virtualSquad || !otherSet.has(s)) continue;
-            if (pullEntireSquads && !claimedAnchorIds.has(s.id)) {
-              teamCandidates.splice(i, 1);
-            } else {
-              const remaining = s.players.filter((p) => !memberSet.has(p));
-              if (remaining.length === 0) {
-                teamCandidates.splice(i, 1);
-              } else {
-                teamCandidates[i] = { ...s, players: remaining };
-              }
-            }
-          }
+           // Update other contributing squads (iterate in reverse for safe splicing).
+           const otherSet = new Set(others);
+           for (let i = teamCandidates.length - 1; i >= 0; i--) {
+             const s = teamCandidates[i];
+             if (s === virtualSquad || !otherSet.has(s)) continue;
+             if (s.isVirtual) {
+               // Merge: absorb this virtual squad's players into ours, then remove it.
+               // We cannot extract individual members without decomposing the other
+               // clan's atomic unit. Merging keeps both clans cohesive and increases
+               // the valid candidate pool vs. skipping + relying on the cohesion constraint.
+               // The absorbed clan drops out of the returned plan (its candidate is gone, so
+               // finalRosterOf finds nothing) and its players are reported as riders on this
+               // group — one block listing everyone, rather than two blocks with the same roster.
+               for (const p of s.players) {
+                 if (!seen.has(p)) {
+                   newPlayers.push(p);
+                   seen.add(p);
+                 }
+               }
+               teamCandidates.splice(i, 1);
+               claimedAnchorIds.add(s.id);
+               continue;
+             }
+             if (pullEntireSquads && !claimedAnchorIds.has(s.id)) {
+               teamCandidates.splice(i, 1);
+             } else {
+               const remaining = s.players.filter((p) => !memberSet.has(p));
+               if (remaining.length === 0) {
+                 teamCandidates.splice(i, 1);
+               } else {
+                 teamCandidates[i] = { ...s, players: remaining };
+               }
+             }
+           }
 
           Logger.verbose(
             'TeamBalancer',
@@ -491,15 +519,18 @@ export const Scrambler = {
         }
       }
 
-      // ─── Clan Cohesion Penalty ──────────────────────────────────────
-      // Safety net, and structurally always zero today: every same-team member of a clan is
-      // folded into that clan's virtual squad, the search moves that squad as one atom, so
-      // originalMembers can never land on two teams. Kept because the folding is the only
-      // thing holding that up — break it and this is what catches the fallout.
+      // ─── Clan Cohesion Constraint ───────────────────────────────────
+      // Safety net, and structurally never triggered today: every same-team member of a clan
+      // ends up in exactly one virtual squad (colliding clans are merged into one atom rather
+      // than decomposed), the search moves that squad as one atom, so originalMembers cannot
+      // land on two teams. Measured at 0 rejections in 3.87M evaluations across the suite.
+      // Kept because the folding is the only thing holding that up — break it and this catches
+      // the fallout. Rejecting outright rather than adding a penalty: a soft score would be
+      // drowned out by the ELO/veteran/balance terms in exactly the case it is needed, and
+      // costs nothing while the constraint stays unreachable.
       if (virtualSquadsByTag.size > 0) {
         const movingToT2 = new Set(selectedT1Squads.flatMap((s) => s.players));
         const movingToT1 = new Set(selectedT2Squads.flatMap((s) => s.players));
-        let clanSplitPenalty = 0;
         for (const vs of virtualSquadsByTag.values()) {
           let onT1 = 0, onT2 = 0;
           for (const pid of vs.originalMembers) {
@@ -511,9 +542,8 @@ export const Scrambler = {
             if (finalTeam === '1') onT1++;
             else onT2++;
           }
-          clanSplitPenalty += Math.min(onT1, onT2) * 75;
+          if (onT1 > 0 && onT2 > 0) return Infinity;
         }
-        combinedScore += clanSplitPenalty;
       }
 
       return combinedScore;
@@ -708,6 +738,36 @@ export const Scrambler = {
       Logger.verbose('TeamBalancer', 2, `Squad-preserving mode tolerates this to avoid breaking friend groups.`);
     }
 
+    // ─── Post-Plan Clan Cohesion Verification ────────────────────────
+    // Defense-in-depth safety net: verify that no clan group was
+    // split across teams in the final plan. Between the merge strategy
+    // in virtual squad construction and the cohesion constraint in
+    // scoring, this should never trigger — but if it does, we log a
+    // loud warning rather than aborting the scramble. Aborting punishes
+    // 80 players for a bug; the warning gives us visibility to fix it
+    // without ruining the round. Cheap: runs once per plan, not per candidate.
+    if (virtualSquadsByTag.size > 0 && finalPlayerMovesMap.size > 0) {
+      const finalTeamByEosID = new Map();
+      for (const [eosID, move] of finalPlayerMovesMap) {
+        finalTeamByEosID.set(eosID, move.targetTeamID);
+      }
+      for (const vs of virtualSquadsByTag.values()) {
+        const teams = new Set();
+        for (const pid of vs.originalMembers) {
+          const t = finalTeamByEosID.get(pid) ?? playerMap.get(pid)?.teamID;
+          if (t) teams.add(t);
+        }
+        if (teams.size > 1) {
+          Logger.verbose('TeamBalancer', 1,
+            `WARNING: Clan [${vs.tag}] on Team ${vs.teamID} was split across teams in final plan. ` +
+            `This indicates a bug in virtual squad construction — please investigate. ` +
+            `Proceeding with scramble to avoid punishing all players.`
+          );
+        }
+      }
+    }
+    // ────────────────────────────────────────────────────────────────
+
     const duration = Date.now() - startTime;
     Logger.verbose('TeamBalancer', 2, `========== Scramble Plan Generated (${duration}ms) ==========`);
     Logger.verbose('TeamBalancer', 2, `Total player moves in plan: ${finalPlayerMovesMap.size}`);
@@ -732,8 +792,10 @@ export const Scrambler = {
 
       result.virtualSquads = [...virtualSquadsByTag.values()]
         .map((vs) => {
-          // Gone entirely: every player was reclaimed by other clans, so there is no unit left
-          // to report.
+          // No candidate left: this group was absorbed whole into a later clan's unit, or had
+          // every player reclaimed. Either way there is no separate atom to report — its players
+          // show up as riders on the group that swallowed it, which is one block listing everyone
+          // rather than two blocks repeating the same roster.
           const roster = finalRosterOf(vs);
           if (!roster || roster.length === 0) return null;
           return {

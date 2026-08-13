@@ -393,8 +393,8 @@ export const DiscordHelpers = {
       const data = moveData[dir];
       // Only groups the plan actually touched. Plenty of virtual squads stay put in any given
       // scramble — listing every one of them in full would bury the handful that do move.
-      // (The cohesion penalty does not cause that: it scores splits, min(onT1, onT2) * 75, and
-      // is indifferent to a group moving as a whole.)
+      // (The cohesion constraint does not cause that: it only rejects candidates that split a
+      // group across teams, and is indifferent to whether a group moves as a whole or stays put.)
       const teamVirtual = virtualSquads
         .filter(vs => String(vs.teamID) === String(data.srcID))
         .map(vs => ({ vs, roster: [...vs.members, ...vs.pulled] }))
