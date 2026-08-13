@@ -146,9 +146,9 @@ check('the source-squad column shows the real in-game squad', () => {
 // A listed virtual squad always travels whole — the scrambler swaps it as one atom and nothing
 // afterwards singles a member out. The invariant itself is asserted against the real algorithm
 // in scrambler-test-runner.js; here we only pin the rendering that relies on it.
-check('a virtual squad block reads "moved together" and carries no moved/stay column', () => {
+check('a virtual squad header carries no moved/stayed qualifier and no moved/stay column', () => {
   const lines = virtualFields(withClans).flatMap(linesOf);
-  assert.ok(lines[0].endsWith('(moved together)'), `header: ${lines[0]}`);
+  assert.ok(!/\((moved together|divided!)\)/.test(lines[0]), `header: ${lines[0]}`);
   assert.ok(!/\b(moved|stay)\s/.test(rowsIn(virtualFields(withClans)).join('\n')),
     'there is no moved/stay column any more');
 });
@@ -241,8 +241,9 @@ check('a squadless clan member is recognisable by its UNASSIGNED source squad', 
   const kovacs = rows.find((r) => r.includes('Kovacs'));
   assert.ok(/◆ UNASSIGN/.test(kovacs), `Kovacs row must name UNASSIGNED: "${kovacs}"`);
   assert.ok(/◆ Alpha/.test(rows.find((r) => r.includes('Sparrow'))), 'Sparrow keeps its real squad');
-  assert.ok(virtualFields(unassignedClan)[0].value.includes('(moved together)'),
-    'the group still travels whole');
+  // Both members are listed, so the block shows the whole group rather than the mover alone.
+  // Checking the rows rather than a header tag — the tag said this on every block and is gone.
+  assert.strictEqual(rows.length, 2, `both members listed, got ${rows.length}`);
 });
 
 // A virtual squad nobody was moved out of: the report is about what changes, so it is omitted.

@@ -23,8 +23,9 @@
  *     least one group), each team gets a Clan Grouping field ahead of its
  *     regular squads: every virtual squad the plan touched is shown as one
  *     block with its full roster (◆ clan member, ◇ pulled along), headed by the
- *     ⚓ anchor squad it was built around and tagged "moved together" — a listed
- *     group always travels whole, the scrambler swaps it as one atom.
+ *     ⚓ anchor squad it was built around. A listed group always travels whole —
+ *     the scrambler swaps it as one atom — so the header carries no moved/stayed
+ *     qualifier; there would be nothing for it to distinguish.
  *     A ◆ row whose squad column reads UNASSIGNED is a squadless player the clan
  *     tag pulled into the group.
  *     Those players are omitted from the regular squad blocks; virtual
@@ -416,10 +417,10 @@ export const DiscordHelpers = {
         const lines = [];
         for (const { vs, roster } of teamVirtual) {
           for (const id of roster) listed.add(id);
-          // "moved together" is a statement, not a verdict: the scrambler swaps a virtual squad
-          // as one atom and nothing afterwards singles a member out, so a listed group always
-          // travels whole. scrambler-test-runner.js asserts that invariant against the real
-          // algorithm; there is deliberately no runtime branch for the torn-apart case.
+          // No "moved together" tag: a listed group always travels whole — the scrambler swaps a
+          // virtual squad as one atom and nothing afterwards singles a member out — so the label
+          // was on every block and distinguished nothing. The invariant is asserted in
+          // scrambler-test-runner.js against the real algorithm, which is where it belongs.
           //
           // ⚓ marks the anchor only here, never in a player row: it is a double-width emoji in
           // Discord's monospace block and would break the aligned columns. The rows already name
@@ -427,8 +428,7 @@ export const DiscordHelpers = {
           const anchor = anchorLabelOf(vs);
           if (anchor) anchorListed = true;
           if (lines.length) lines.push('');
-          lines.push(`Virtual Squad: [${vs.tag}] ${anchor ? `⚓ ${anchor} · ` : ''}` +
-            `${squadStats(roster)} (moved together)`);
+          lines.push(`Virtual Squad: [${vs.tag}] ${anchor ? `⚓ ${anchor} · ` : ''}${squadStats(roster)}`);
           lines.push(...this.buildPlayerRows(roster, playerByEos, eloMap, clanByEos, {
             squadLabelOf
           }));

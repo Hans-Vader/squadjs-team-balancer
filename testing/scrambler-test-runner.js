@@ -551,9 +551,10 @@ async function runAllTests() {
 
 /**
  * Invariant guard for the Discord report: every virtual squad in plan.virtualSquads either
- * moves in full or not at all. The report relies on this — it labels each block
- * "moved together" and has no rendering branch for a torn-apart group, so a violation would
- * silently produce a wrong report rather than a visibly broken one.
+ * moves in full or not at all. The report relies on this — it renders each block as one whole
+ * roster and has no branch for a torn-apart group, so a violation would silently produce a
+ * wrong report rather than a visibly broken one. This is the only place the invariant is
+ * checked; the report no longer carries a label asserting it.
  *
  * Two ways this used to break, both fixed in tb-scrambler.js and both covered here:
  *   - the roster was read off an allMembers snapshot taken before a later clan could reclaim

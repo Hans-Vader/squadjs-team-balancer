@@ -25,7 +25,7 @@ Stress-tests the Scrambler algorithm using mock data. Standalone — no server r
   - Similarity merging at edit distances 0 and 1
   - Case sensitivity: case-fold alone (`caseSensitive: false`, edit=0), case-fold + similarity (`caseSensitive: false`, edit=1), case-sensitive default (`caseSensitive: true`, edit=0)
   - Cross-clan squad collision: two clans sharing a squad must each stay cohesive (20 runs per `pullEntireSquads` mode, 100% required — the scrambler is randomized, so a single run would only catch the regression ~60% of the time)
-  - Virtual squad atomicity: every group in `plan.virtualSquads` moves in full or not at all (200 runs across 4 scenarios). Guards the Discord report, which labels each block "moved together" and has no branch for a torn group.
+  - Virtual squad atomicity: every group in `plan.virtualSquads` moves in full or not at all (200 runs across 4 scenarios). Guards the Discord report, which renders each block as a whole roster with no branch for a torn group.
   - Cross-clan squad decomposition (`test-cross-clan-squad-collision.js`, 30 runs): a third clan whose members sit inside two *already claimed* virtual squads. Checks that those units are absorbed whole rather than picked apart, and that the physical squads underneath survive. Catches what the atomicity test cannot — that one only inspects virtual rosters, so physical squad tearing passed it unnoticed (34/60 runs before the merge fix).
 - Bulk regression: 2,500 randomized runs (general) + 500 randomized runs (clan grouping with `caseSensitive` and `pullEntireSquads` randomized per run)
 

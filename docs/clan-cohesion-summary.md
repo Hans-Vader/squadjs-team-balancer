@@ -40,17 +40,19 @@ Ein Spieler ohne Squad, der über sein Clan-Tag in ein Virtual Squad gefaltet wu
 
 ### `utils/tb-discord-helpers.js`
 
-`divided!`, die `moved`/`stay`-Spalte, der `movedOf`-Parameter, das `moved`-Feld und der zugehörige Sortier-Branch sind entfernt. Der Blockkopf sagt jetzt immer `(moved together)` — als Aussage, nicht als Urteil.
+`divided!`, die `moved`/`stay`-Spalte, der `movedOf`-Parameter, das `moved`-Feld und der zugehörige Sortier-Branch sind entfernt.
+
+**Auch `(moved together)` ist weg.** Zwischenschritt war, den Blockkopf immer `(moved together)` sagen zu lassen — Aussage statt Urteil. Das trägt aber keine Information: wenn es auf *jedem* Block steht, unterscheidet es nichts. Ein gelisteter Block ist eine ganze Gruppe, und das ist an den Zeilen ablesbar. Die Invariante gehört in den Test gegen den echten Algorithmus (`runVirtualSquadAtomicityTest`), nicht in ein Label, das sie behauptet.
 
 **Kein neues Symbol.** Ein squadloser Spieler, den ein Clan-Tag hereingezogen hat, ist bereits erkennbar: die Quell-Squad-Spalte zeigt `UNASSIGNED`.
 
 ```
-Virtual Squad: [3DP] ⚓ Alpha · 5p · Ø26.1μ · 2★ (moved together)
+Virtual Squad: [3DP] ⚓ Alpha · 5p · Ø26.1μ · 2★
   31.4μ★ ◆ Alpha     [3DP] Sparrow
   24.5μ  ◆ UNASSIGN… [3DP] Kovacs      ← war squadlos, per Tag gezogen
 ```
 
-Dazu zwei sachlich falsche Kommentare korrigiert (die Cohesion-Penalty bewertet Splits über `min(onT1, onT2) * 75` und ist gegenüber Bewegung indifferent — sie steuert den Scrambler *nicht* von Clan-Squads weg).
+Dazu zwei sachlich falsche Kommentare korrigiert (die Cohesion-Bewertung ist gegenüber Bewegung indifferent — sie steuert den Scrambler *nicht* von Clan-Squads weg).
 
 ### Tests
 
@@ -171,8 +173,8 @@ Verschmolzene Clans sind größer, passen dadurch seltener ins Churn-Fenster (Zi
 | Stelle | Änderung |
 |---|---|
 | Header-Kommentar | `"moved together" or "divided!"` raus, „always travels whole" + UNASSIGNED-Hinweis rein |
-| `teamVirtual`-Kommentar | Cohesion-Penalty-Behauptung korrigiert |
-| Virtual-Squad-Schleife | `const divided` gelöscht, Header-Ternary → statisch, `movedOf:` aus dem Aufruf |
+| `teamVirtual`-Kommentar | Cohesion-Behauptung korrigiert |
+| Virtual-Squad-Schleife | `const divided` gelöscht, Header-Ternary → statisch, dann Qualifier ganz entfernt, `movedOf:` aus dem Aufruf |
 | `movers`-Kommentar | Stayer-Satz entfernt |
 | `buildPlayerRows` | `movedOf` aus Signatur und Doc-Kommentar |
 | Zeilenaufbau | `moved`-Feld, Sortier-Branch und `moved`-Spalte entfernt |
