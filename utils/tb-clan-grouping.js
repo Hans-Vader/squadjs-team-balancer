@@ -4,7 +4,7 @@
  * ╚═══════════════════════════════════════════════════════════════╝
  *
  * Extracts clan tag groups from raw player data and (optionally) merges
- * groups whose tags are within a configurable Levenshtein edit distance.
+ * groups whose tags differ in at most N characters (same length only).
  *
  * Pure logic — no external dependencies. Importable from both the plugin
  * and the standalone test harness.
@@ -27,16 +27,19 @@
  *
  * EXPORTS
  * -------
- *   levenshteinDistance(a, b) -> number
- *     Standard Levenshtein distance with O(min(m,n)) memory.
+ *   hammingDistance(a, b) -> number
+ *     Number of differing character positions, or Infinity when the two
+ *     tags are not the same length.
  *
  *   extractClanGroups(rawPlayers, options) -> { tag: [eosID, ...] }
  *     Extracts a clan-tag prefix from each player's name using a
  *     five-strategy detector (ported from the squadjs-elo-tracker
- *     project), groups by tag, optionally normalizes case + diacritics
+ *     project), drops prefixes shorter than minTagLength, groups by
+ *     tag, optionally normalizes case + diacritics
  *     + "gamer-character" lookalikes for case-insensitive merging,
- *     optionally merges groups within a Levenshtein edit distance, and
- *     filters by min/max group size.
+ *     optionally merges groups whose tags differ in at most N
+ *     characters (same length only), and filters by min/max
+ *     group size.
  *
  *     Detection strategies, applied in priority order:
  *       1. Tag wrapped in a matched or mismatched bracket pair, including
@@ -66,8 +69,22 @@
  *     options = {
  *       minSize: number          // default 2
  *       maxSize: number          // default 18
- *       maxEditDistance: number  // default 1; 0 = exact match only
- *       caseSensitive: boolean   // default true; when false, the raw
+ *       minTagLength: number     // default 2; measured on the grouping
+ *                                // key, i.e. AFTER normalization when
+ *                                // caseSensitive is false ([A-B] is a
+ *                                // 2-character key there, not 3). A key
+ *                                // shorter than this is not a clan tag.
+ *                                // Guards against 1-char keys like the `A`
+ *                                // that `[A|B]` truncates to, which would
+ *                                // otherwise merge with every other
+ *                                // 1-char tag at maxEditDistance 1.
+ *       maxEditDistance: number  // default 1; counts differing
+ *                                // characters between EQUALLY LONG tags
+ *                                // ([GTR]+[GTA] merge, [GTR]+[TR] do not).
+ *                                // 0 = exact match only.
+ *       caseSensitive: boolean   // default true here, but the
+ *                                // team-balancer plugin passes false;
+ *                                // when false, the raw
  *                                // captured prefix is normalized via
  *                                // NFD + a gamer-character map
  *                                // (λ→a, я→r, etc.) + non-alphanumeric
@@ -156,35 +173,28 @@ function normalizeTag(raw) {
   return norm || null;
 }
 
-export function levenshteinDistance(a, b) {
-  if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-
-  // Ensure a is the shorter string for memory efficiency
-  if (a.length > b.length) [a, b] = [b, a];
-
-  const m = a.length;
-  const n = b.length;
-  const dp = Array.from({ length: m + 1 }, (_, i) => i);
-
-  for (let j = 1; j <= n; j++) {
-    let prev = dp[0];
-    dp[0] = j;
-    for (let i = 1; i <= m; i++) {
-      const tmp = dp[i];
-      dp[i] = a[i - 1] === b[j - 1]
-        ? prev
-        : 1 + Math.min(prev, dp[i], dp[i - 1]);
-      prev = tmp;
-    }
-  }
-  return dp[m];
+/**
+ * Substitution distance: how many positions two equally long tags differ in.
+ * Different lengths return Infinity, so `[GTR]` and `TR` never merge while
+ * `[GTR]` and `[GTA]` still do. Iterates code points rather than UTF-16 units
+ * so an astral glyph in a tag counts as one character, and NFC-composes first
+ * so a decomposed `Café` (e + combining accent) is not counted as one
+ * character longer than the precomposed one — with length now a hard gate,
+ * the client's Unicode form would otherwise decide whether tags merge.
+ */
+export function hammingDistance(a, b) {
+  const x = [...a.normalize('NFC')];
+  const y = [...b.normalize('NFC')];
+  if (x.length !== y.length) return Infinity;
+  let d = 0;
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) d++;
+  return d;
 }
 
 export function extractClanGroups(rawPlayers, options = {}) {
   const minSize = options.minSize ?? 2;
   const maxSize = options.maxSize ?? 18;
+  const minTagLength = options.minTagLength ?? 2;
   const maxEditDistance = options.maxEditDistance ?? 1;
   const caseSensitive = options.caseSensitive ?? true;
   const ignoreList = options.ignoreList ?? [];
@@ -194,8 +204,15 @@ export function extractClanGroups(rawPlayers, options = {}) {
     if (!player?.name || !player?.eosID) continue;
     const raw = extractRawPrefix(player.name);
     if (!raw) continue;
-    const key = caseSensitive ? raw : normalizeTag(raw);
+    // NFC first: the same visible tag can arrive precomposed (é) or
+    // decomposed (e + U+0301). Without composing the KEY, those are two
+    // separate groups at maxEditDistance 0 (where the merge pass never
+    // runs), and a decomposed one-glyph prefix would also sneak past the
+    // minTagLength gate as if it were two characters. normalizeTag's output
+    // is already ASCII, so it needs no separate pass.
+    const key = caseSensitive ? raw.normalize('NFC') : normalizeTag(raw);
     if (!key) continue;
+    if ([...key].length < minTagLength) continue;
     if (!groups[key]) groups[key] = new Set();
     groups[key].add(player.eosID);
   }
@@ -209,7 +226,7 @@ export function extractClanGroups(rawPlayers, options = {}) {
   // Remove ignored clan tags
   if (ignoreList.length > 0) {
     const normalizedIgnores = caseSensitive
-      ? new Set(ignoreList)
+      ? new Set(ignoreList.map(t => t.normalize('NFC')))
       : new Set(ignoreList.map(t => normalizeTag(t)).filter(Boolean));
 
     for (const tag of Object.keys(groups)) {
@@ -226,7 +243,7 @@ export function extractClanGroups(rawPlayers, options = {}) {
       const tags = Object.keys(groups);
       for (let i = 0; i < tags.length && !merged; i++) {
         for (let j = i + 1; j < tags.length && !merged; j++) {
-          if (levenshteinDistance(tags[i], tags[j]) <= maxEditDistance) {
+          if (hammingDistance(tags[i], tags[j]) <= maxEditDistance) {
             const [keep, absorb] = groups[tags[i]].length >= groups[tags[j]].length
               ? [tags[i], tags[j]]
               : [tags[j], tags[i]];

@@ -119,8 +119,9 @@
  *   enableClanTagGrouping              - Keep same-team clan members together (default: false).
  *   minClanGroupSize                   - Min clan members to group (default: 2).
  *   maxClanGroupSize                   - Max clan members to group (default: 18).
- *   clanTagMaxEditDistance             - Levenshtein distance for merging tags (default: 1).
- *   clanTagCaseSensitive               - Case-sensitive tag matching (default: true).
+ *   clanTagMinLength                   - Min characters for a prefix to count as a tag (default: 2).
+ *   clanTagMaxEditDistance             - Max differing chars for merging equally long tags (default: 1).
+ *   clanTagCaseSensitive               - Case-sensitive tag matching (default: false).
  *   clanGroupingPullEntireSquads       - Pull non-clan teammates with clan (default: false).
  *   clanTagIgnoreList                  - Clan tags to exclude from grouping (default: []).
  *
@@ -177,8 +178,9 @@
  *   "enableClanTagGrouping": false,
  *   "minClanGroupSize": 2,
  *   "maxClanGroupSize": 18,
+ *   "clanTagMinLength": 2,
  *   "clanTagMaxEditDistance": 1,
- *   "clanTagCaseSensitive": true,
+ *   "clanTagCaseSensitive": false,
  *   "clanGroupingPullEntireSquads": false,
  *   "clanTagIgnoreList": [],
  *   "changeTeamRetryInterval": 50,
@@ -309,15 +311,20 @@ export default class TeamBalancer extends BasePlugin {
         type: 'number',
         description: 'Maximum total members of a clan tag to be considered for grouping. Larger clans are ignored to avoid distorting balance.'
       },
+      clanTagMinLength: {
+        default: 2,
+        type: 'number',
+        description: 'Minimum number of characters a tag must have to count as a clan tag. Shorter ones are ignored entirely — without this, a single-character leftover (e.g. [A|B] truncates to A) would merge with every other one-character tag at clanTagMaxEditDistance 1. Counted on the grouping key, so with clanTagCaseSensitive false (the default) punctuation is stripped first and [A-B] counts as 2 characters, not 3.'
+      },
       clanTagMaxEditDistance: {
         default: 1,
         type: 'number',
-        description: 'Max Levenshtein edit distance to merge similar clan tags into one group (e.g. [CLAN] and [CLAM] at distance 1). Set 0 for exact match only.'
+        description: 'Max number of differing characters when merging similar clan tags of the SAME length into one group ([CLAN] and [CLAM] merge at distance 1; [GTR] and [TR] never merge because their lengths differ). Set 0 for exact match only.'
       },
       clanTagCaseSensitive: {
         default: false,
         type: 'boolean',
-        description: 'When true (default), tags are grouped by the raw extracted prefix verbatim ([CLAN] and [clan] are different). When false, tags are normalized via NFD + a gamer-character lookalike map (λ→a, я→r, ø→o, ß→ss, etc.) + non-alphanumeric strip + uppercase, so case variants and decorative Unicode collapse into one group ([Café]/[CAFE]/[CΛFE] all merge).'
+        description: 'When false (default), tags are normalized via NFD + a gamer-character lookalike map (λ→a, я→r, ø→o, ß→ss, etc.) + non-alphanumeric strip + uppercase, so case variants and decorative Unicode collapse into one group ([Café]/[CAFE]/[CΛFE] all merge). When true, tags are grouped by the raw extracted prefix verbatim ([CLAN] and [clan] are different).'
       },
        clanGroupingPullEntireSquads: {
          default: false,
@@ -2201,6 +2208,7 @@ export default class TeamBalancer extends BasePlugin {
           clanGroups = extractClanGroups(this.server.players, {
             minSize: this.options.minClanGroupSize,
             maxSize: this.options.maxClanGroupSize,
+            minTagLength: this.options.clanTagMinLength,
             maxEditDistance: this.options.clanTagMaxEditDistance,
             caseSensitive: this.options.clanTagCaseSensitive,
             ignoreList: this.options.clanTagIgnoreList

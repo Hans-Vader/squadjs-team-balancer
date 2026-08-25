@@ -101,8 +101,8 @@ When `enableClanTagGrouping` is on, the scrambler keeps players who share a clan
 
 **How it works**:
 
-* **Tag detection**: Player names are scanned for a leading clan tag via a five-strategy detector (ported from [squadjs-elo-tracker](https://github.com/mikebjoyce/squadjs-elo-tracker)), tried in order: bracket pairs (`[TAG]`, `【TAG】`, `╔TAG╗`), explicit separators (`TAG | Name`, `TAG // Name`), 2+ space gap, short ASCII ALL-CAPS (`KM Lookout`), and a bare-prefix fallback for Unicode/mixed-case prefixes (`KΛZ Korven`). Names with no visible tag/name boundary (e.g. `ABCJohnSmith`) yield no group.
-* **Matching**: Case-sensitive by default. Set `clanTagCaseSensitive: false` to normalize via NFD-decompose, lookalike mapping (`λ`→`a`, `я`→`r`, …), and uppercase, collapsing variants like `[Café]` / `[CAFE]` / `[CΛFE]`. Tags within `clanTagMaxEditDistance` Levenshtein distance are iteratively merged so transitive matches (`[AAA] ↔ [AAB] ↔ [ABB]`) collapse into one group.
+* **Tag detection**: Player names are scanned for a leading clan tag via a five-strategy detector (ported from [squadjs-elo-tracker](https://github.com/mikebjoyce/squadjs-elo-tracker)), tried in order: bracket pairs (`[TAG]`, `【TAG】`, `╔TAG╗`), explicit separators (`TAG | Name`, `TAG // Name`), 2+ space gap, short ASCII ALL-CAPS (`KM Lookout`), and a bare-prefix fallback for Unicode/mixed-case prefixes (`KΛZ Korven`). Names with no visible tag/name boundary (e.g. `ABCJohnSmith`) yield no group, and a tag shorter than `clanTagMinLength` characters is not treated as a tag at all.
+* **Matching**: Case-**in**sensitive by default (`clanTagCaseSensitive: false`): tags are normalized via NFD-decompose, lookalike mapping (`λ`→`a`, `я`→`r`, …), non-alphanumeric strip and uppercase, collapsing variants like `[Café]` / `[CAFE]` / `[CΛFE]`. Set `clanTagCaseSensitive: true` to group by the raw extracted prefix verbatim instead. Tags of the **same length** that differ in at most `clanTagMaxEditDistance` characters are merged, largest group absorbing the smaller. Tags of different length never merge: `[GTR]` and `TR` stay separate clans, while `[GTR]` and `[GTA]` still merge. Merging repeats until nothing changes, but a chain like `[AAA] ↔ [AAB] ↔ [ABB]` only collapses fully when the middle tag is the largest group and absorbs both ends; if an end group wins the size tiebreak, `[AAB]` disappears into it and the remaining pair is 2 apart and stays split.
 * **Virtual squads**: Per team, clan members are folded into a virtual squad anchored on the squad already holding the most clan members (tiebreak: larger size, lower ID). `clanGroupingPullEntireSquads` toggles whether non-clan teammates travel along (default: only clan members are pulled).
 * **Overlapping clans**: Clans sitting in disjoint squads get one virtual squad each. Clans that share a squad merge into a single unit that moves as a whole — pulling one clan's members back out of another clan's virtual squad would break the very cohesion the grouping exists to provide.
 * **Cohesion guarantee**: A candidate plan that would place one clan group on both teams is rejected outright (score = `Infinity`), in ELO and heuristic mode alike. This is a hard constraint rather than a preference: it can cost a player or two of numerical balance, and that is the intended trade-off.
@@ -168,8 +168,9 @@ Add to your `config.json`:
    "enableClanTagGrouping": false,
    "minClanGroupSize": 2,
    "maxClanGroupSize": 18,
+   "clanTagMinLength": 2,
    "clanTagMaxEditDistance": 1,
-   "clanTagCaseSensitive": true,
+   "clanTagCaseSensitive": false,
    "clanGroupingPullEntireSquads": false,
    "clanTagIgnoreList": [],
    "changeTeamRetryInterval": 50,
@@ -290,8 +291,9 @@ Clan Tag Grouping:
 enableClanTagGrouping               - Keep players sharing a clan tag (e.g. [ABC]) together when they are on the same team during a scramble (default: false).
 minClanGroupSize                    - Min total members of a clan tag to be considered for grouping (default: 2).
 maxClanGroupSize                    - Max total members of a clan tag to be considered for grouping; larger clans are ignored (default: 18).
-clanTagMaxEditDistance              - Max Levenshtein edit distance to merge similar clan tags (e.g. [CLAN]+[CLAM] at distance 1). 0 = exact match only (default: 1).
-clanTagCaseSensitive                - When true (default), tags are grouped by the raw extracted prefix verbatim ([CLAN] and [clan] are different). When false, tags are normalized via NFD + gamer-character map (λ→a, я→r, etc.) + non-alphanumeric strip + uppercase, so [Café]/[CAFE]/[CΛFE] all collapse into one group.
+clanTagMinLength                    - Min characters a tag must have to count as a clan tag; shorter ones are ignored entirely. Counted on the grouping key, so with clanTagCaseSensitive false punctuation is stripped first ([A-B] counts as 2) (default: 2).
+clanTagMaxEditDistance              - Max number of differing characters when merging similar clan tags of the same length (e.g. [CLAN]+[CLAM] at distance 1). Tags of different length never merge ([GTR] vs [TR]). 0 = exact match only (default: 1).
+clanTagCaseSensitive                - When false (default), tags are normalized via NFD + gamer-character map (λ→a, я→r, etc.) + non-alphanumeric strip + uppercase, so [Café]/[CAFE]/[CΛFE] all collapse into one group. When true, tags are grouped by the raw extracted prefix verbatim ([CLAN] and [clan] are different).
 clanGroupingPullEntireSquads        - When true, contributing squads merge wholesale into the virtual clan squad (non-clan teammates travel with their clan members). When false (default), only clan members are pulled into the anchor squad.
 clanTagIgnoreList                   - Clan tags to exclude from clan grouping entirely (default: []).
 

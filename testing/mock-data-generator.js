@@ -253,17 +253,19 @@ export function generateScenario_LowPopLargeClan() {
  * regex character class (dash, underscore, dot, ampersand, pipe, plus,
  * equals, asterisk, hash, at).
  * Verifies the regex extracts each kind correctly and grouping treats
- * them as normal tags. Includes a similarity-merge case across special
- * chars (`[7-CAV]` + `[7-CV]` differ by deletion of one 'A' → distance 1).
+ * them as normal tags — except `A|B`, which the closing-bracket class
+ * truncates to a single `A` and minTagLength then drops. Includes a
+ * similarity-merge case across special chars (`[7-CAV]` + `[7-CV]` differ
+ * only in length, so they must NOT merge).
  */
 export function generateScenario_ClanSpecialChars() {
   const players = generateMockPlayers(120, 0.5, 0);
   injectClanTags(players, [
     { tag: '7-CAV', count: 3, teamID: 1, squadID: 4 },   // dash
-    { tag: '7-CV',  count: 2, teamID: 1, squadID: 5 },   // distance 1 from 7-CAV (delete 'A')
+    { tag: '7-CV',  count: 2, teamID: 1, squadID: 5 },   // shorter than 7-CAV -> stays its own clan
     { tag: 'H_M',   count: 2, teamID: 1, squadID: 6 },   // underscore
     { tag: 'H&M',   count: 2, teamID: 1, squadID: 7 },   // ampersand
-    { tag: 'A|B',   count: 2, teamID: 2, squadID: 4 },   // pipe
+    { tag: 'A|B',   count: 2, teamID: 2, squadID: 4 },   // pipe: truncates to 'A', below minTagLength
     { tag: 'B.A.D', count: 3, teamID: 2, squadID: 5 },   // dots
     { tag: 'TOP+',  count: 2, teamID: 2, squadID: 6 },   // plus
     { tag: '*TOP*', count: 2, teamID: 2, squadID: 7 },   // asterisks
@@ -347,7 +349,7 @@ export function generateScenario_RealWorldNames() {
   // Bracketed pair + bare prefix. Strategy 1 captures `♣ΛCE` and `♣ΛC€`
   // from the bracketed names; strategy 5 captures `♣ΛCE` from the bare
   // one. The Real-world test runs with `maxEditDistance: 1`, so the
-  // `♣ΛC€` variant merges into `♣ΛCE` (Levenshtein 1) and all three
+  // `♣ΛC€` variant merges into `♣ΛCE` (same length, one differing char) and all three
   // players group together. In `caseSensitive: false` deployments the
   // `€ → e` entry in NON_ASCII_MAP would also collapse them.
   push(15, 2, 10, '[♣ΛCE] Hans_Wurst');

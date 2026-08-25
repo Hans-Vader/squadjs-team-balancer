@@ -22,14 +22,23 @@ Stress-tests the Scrambler algorithm using mock data. Standalone — no server r
   - Same-team clan in multiple squads (default vs `pullEntireSquads: true`)
   - Cross-team clan (each side cohesive, no forced cross-team consolidation)
   - Sub-min clan ignored
-  - Similarity merging at edit distances 0 and 1
-  - Case sensitivity: case-fold alone (`caseSensitive: false`, edit=0), case-fold + similarity (`caseSensitive: false`, edit=1), case-sensitive default (`caseSensitive: true`, edit=0)
+  - Similarity merging at edit distances 0 and 1 (same-length tags only — `[7-CAV]`/`[7-CV]` must stay apart)
+  - Case sensitivity: case-fold alone (`caseSensitive: false`, edit=0), case-fold + similarity (`caseSensitive: false`, edit=1), raw-prefix matching (`caseSensitive: true`, edit=0)
   - Cross-clan squad collision and the anchor fallback (see `test-cross-clan-squad-collision.js`)
 - Bulk regression: 2,500 randomized runs (general) + 500 randomized runs (clan grouping with `caseSensitive` and `pullEntireSquads` randomized per run)
 
 ```bash
 node scrambler-test-runner.js
 ```
+
+### `test-clan-tag-distance.js`
+
+Assertions for `hammingDistance` and the clan-tag merge rule: tags of the same
+length merge within `maxEditDistance` (`[GTR]`/`[GTA]`), tags of different
+length never do (`[GTR]`/`TR`), and neither astral glyphs nor the client's
+NFC/NFD form change the verdict. Also covers `minTagLength`: the one-character
+prefix `[A|B]` truncates to is not a clan tag at the default of 2. Runs as part of the scrambler suite; no
+separate command needed.
 
 ### `test-cross-clan-squad-collision.js`
 

@@ -16,6 +16,7 @@ import {
   generateScenario_ClanBelowMin,
   generateScenario_LowPopLargeClan
 } from './mock-data-generator.js';
+import { runClanTagDistanceTest } from './test-clan-tag-distance.js';
 import {
   runCrossClanSquadDecompositionTest,
   runAnchorFallbackTagTest
@@ -253,10 +254,12 @@ async function runClanTest(testName, dataGeneratorFn, opts = {}) {
     pullEntireSquads = false,
     minSize = 2,
     maxSize = 18,
+    minTagLength = 2,
     maxEditDistance = 1,
     caseSensitive = true,
     scramblePercentage = 0.5,
     expectMerged = [],   // optional: array of arrays of tags that should have merged into one group
+    expectSeparate = [], // optional: array of arrays of tags that must each survive as their own group
     expectNotGrouped = [] // optional: tags that should NOT appear in extracted groups
   } = opts;
 
@@ -265,7 +268,7 @@ async function runClanTest(testName, dataGeneratorFn, opts = {}) {
 
   const { players, squads } = dataGeneratorFn();
 
-  const clanGroups = extractClanGroups(players, { minSize, maxSize, maxEditDistance, caseSensitive });
+  const clanGroups = extractClanGroups(players, { minSize, maxSize, minTagLength, maxEditDistance, caseSensitive });
   const tags = Object.keys(clanGroups);
   console.log(`   Extracted clans: ${tags.length === 0 ? '(none)' : tags.map(t => `[${t}]:${clanGroups[t].length}`).join(' ')}`);
 
@@ -329,6 +332,16 @@ async function runClanTest(testName, dataGeneratorFn, opts = {}) {
       name: `Similarity: ${mergeSet.map(t => `[${t}]`).join(' + ')} merged into one group`,
       pass: wasMerged,
       detail: wasMerged ? '' : ` (saw separate tags: ${presentTags.join(', ')})`
+    });
+  }
+
+  for (const group of expectSeparate) {
+    const present = group.filter(t => tags.includes(t));
+    const stayedApart = present.length === group.length;
+    checks.push({
+      name: `Separation: ${group.map(t => `[${t}]`).join(' + ')} stayed distinct groups`,
+      pass: stayedApart,
+      detail: stayedApart ? '' : ` (only saw: ${present.join(', ')})`
     });
   }
 
@@ -519,10 +532,17 @@ async function runAllTests() {
     caseSensitive: true
   });
   await runClanTest('Special-char tags: [7-CAV], [H_M], [B.A.D] all extract correctly', generateScenario_ClanSpecialChars, {
-    expectMerged: [['7-CAV', '7-CV']]
+    expectMerged: [['H_M', 'H&M']],       // same length, one substitution
+    expectSeparate: [['7-CAV', '7-CV']],  // different length -> never merged
+    expectNotGrouped: ['A']               // [A|B] truncates to 'A', below minTagLength
+  });
+  await runClanTest('Special-char tags: minTagLength 4 drops every shorter tag', generateScenario_ClanSpecialChars, {
+    minTagLength: 4,
+    expectNotGrouped: ['A', 'H_M', 'H&M', '@HQ']
   });
   await runClanTest('Special-char tags: [7-CAV] and [7-CV] stay separate at edit=0', generateScenario_ClanSpecialChars, {
-    maxEditDistance: 0
+    maxEditDistance: 0,
+    expectSeparate: [['7-CAV', '7-CV']]
   });
   await runClanTest('Delimiter styles: [], <>, (), {}, none, open-only all extract', generateScenario_ClanDelimiters, {
     maxEditDistance: 0
@@ -542,6 +562,10 @@ async function runAllTests() {
   track('Cross-clan squads stay atomic and rosters stay disjoint', crossClan.pass,
     ` (${crossClan.dividedCount} divided, ${crossClan.squadDividedCount} damaged, ` +
     `${crossClan.duplicateCount} duplicated)`);
+
+  const tagDistance = runClanTagDistanceTest();
+  track('Clan tag merging counts substitutions only, never length differences', tagDistance.pass,
+    tagDistance.error ? ` (${tagDistance.error})` : '');
 
   const fallbackTags = await runAnchorFallbackTagTest();
   track('Anchor fallback keeps every merged clan tag and member', fallbackTags.pass,
